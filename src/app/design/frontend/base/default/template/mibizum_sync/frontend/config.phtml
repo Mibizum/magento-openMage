@@ -1,0 +1,22 @@
+<?php
+/**
+ * @var Mibizum_Sync_Block_Frontend_Config $this
+ *
+ * Injects VERBATIM into the <head> the widget snippet that the merchant pastes
+ * in the admin (Mibizum Sync > Frontend > "Widget snippet"), copied from the
+ * Mibizum panel (Domains > JS Code).
+ *
+ * The module NO LONGER builds the <script> tag (it used to assemble
+ * src=/sdk/v1.js + data-apikey + data-trigger...). Now it only emits the
+ * pasted content. If the textarea is empty, nothing is emitted.
+ *
+ * The content is JS/HTML controlled by the store ADMIN (a maximally trusted
+ * role, who can already edit templates). That is why it is emitted WITHOUT
+ * escaping (just like Magento's native "Miscellaneous Scripts" at
+ * design/head/includes). It NEVER comes from public input.
+ */
+$snippet = $this->getWidgetSnippet();
+if ($snippet === '') {
+    return;
+}
+echo "\n" . $snippet . "\n";

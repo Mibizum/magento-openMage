@@ -1,0 +1,47 @@
+# modman manifest (Mibizum_Sync (Magento 1.x / OpenMage module))
+#
+# Maps the module files (left column, relative to THIS directory
+# packages/adapter-magento/) to their destination at the Magento root (right
+# column). modman creates SYMLINKS, so editing the repo code is reflected in the
+# store without redeploying (ideal for development).
+#
+# Recommended usage in this monorepo (local link, not clone):
+#
+#   cd /path/to/your/magento
+#   modman init                                   # creates .modman/ (once)
+#   modman link /path/to/repo/packages/adapter-magento
+#   rm -rf var/cache/*                            # or Admin > Cache > Flush
+#
+# To update after a git pull of the repo: the symlinks already point to the new
+# code; just flush the cache. `modman repair` recreates symlinks if something broke.
+#
+# NOTE on `modman clone <git-url>`: it clones the whole repo and looks for a
+# `modman` file at the REPO ROOT. Since the module lives in a subdirectory of the
+# monorepo here, `clone` does not fit directly; use `modman link` pointing to this
+# directory, or deploy with composer / the packager .tgz.
+
+# Module activator
+src/app/etc/modules/Mibizum_Sync.xml                              app/etc/modules/Mibizum_Sync.xml
+
+# Module code (community codePool)
+src/app/code/community/Mibizum/Sync                               app/code/community/Mibizum/Sync
+
+# Frontend layout + templates
+src/app/design/frontend/base/default/layout/mibizum_sync.xml      app/design/frontend/base/default/layout/mibizum_sync.xml
+src/app/design/frontend/base/default/template/mibizum_sync        app/design/frontend/base/default/template/mibizum_sync
+
+# Admin layout + templates
+src/app/design/adminhtml/default/default/layout/mibizum_sync.xml  app/design/adminhtml/default/default/layout/mibizum_sync.xml
+src/app/design/adminhtml/default/default/template/mibizum_sync    app/design/adminhtml/default/default/template/mibizum_sync
+
+# Locale (admin/frontend translations) - one CSV per language, mapped at file
+# granularity so we never overshadow the store's other app/locale/<lang>/ files.
+src/app/locale/es_ES/Mibizum_Sync.csv                             app/locale/es_ES/Mibizum_Sync.csv
+src/app/locale/de_DE/Mibizum_Sync.csv                             app/locale/de_DE/Mibizum_Sync.csv
+src/app/locale/fr_FR/Mibizum_Sync.csv                             app/locale/fr_FR/Mibizum_Sync.csv
+src/app/locale/it_IT/Mibizum_Sync.csv                             app/locale/it_IT/Mibizum_Sync.csv
+src/app/locale/pt_PT/Mibizum_Sync.csv                             app/locale/pt_PT/Mibizum_Sync.csv
+src/app/locale/pt_BR/Mibizum_Sync.csv                             app/locale/pt_BR/Mibizum_Sync.csv
+
+# Admin skin (backend widget CSS/JS)
+src/skin/adminhtml/default/default/mibizum_sync                   skin/adminhtml/default/default/mibizum_sync

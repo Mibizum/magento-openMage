@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+  Mibizum_Sync - Registro del módulo en el sistema de módulos Magento.
+  Va en app/etc/modules/ del Magento.
+-->
+<config>
+    <modules>
+        <Mibizum_Sync>
+            <active>true</active>
+            <codePool>community</codePool>
+            <depends>
+                <Mage_Core/>
+                <Mage_Catalog/>
+                <Mage_CatalogInventory/>
+                <Mage_Adminhtml/>
+            </depends>
+        </Mibizum_Sync>
+    </modules>
+</config>

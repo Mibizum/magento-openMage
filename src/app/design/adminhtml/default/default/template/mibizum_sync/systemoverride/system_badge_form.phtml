@@ -1,0 +1,646 @@
+<?php
+/**
+ * Visual widget for the System Badge form.
+ *
+ * Simplified version of nature_form.phtml: ONLY 4 visual attributes
+ * (color, position, shape, display_mode) + icon. No kind picker, no
+ * categories, no trigger config. That info stays in system.xml or in the
+ * row (kind read-only).
+ *
+ * Reuses the palette/suggestTextColor endpoints from the NatureController
+ * (DERIVED palette aggregates both badge types).
+ *
+ * @var Mage_Adminhtml_Block_Template $this
+ *   $this->getBadgeId()    int
+ *   $this->getBadgeModel() Mibizum_Sync_Model_SystemOverride
+ */
+
+$model = $this->getBadgeModel();
+
+$uploadUrl       = $this->getUrl('adminhtml/mibizum_sync_systemoverride/uploadIcon');
+$paletteUrl      = $this->getUrl('adminhtml/mibizum_sync_nature/palette');
+$suggestTextUrl  = $this->getUrl('adminhtml/mibizum_sync_nature/suggestTextColor');
+
+$curColor       = $model && $model->getColorHex()    ? $model->getColorHex()    : '#1E9C3C';
+$curTextColor   = $model && $model->getTextColorHex() ? $model->getTextColorHex() : '#FFFFFF';
+$curPosition    = $model && $model->getPosition()    ? $model->getPosition()    : 'top_left';
+$curShape       = $model && $model->getShape()       ? $model->getShape()       : 'pill';
+$curDisplayMode = $model && $model->getDisplayMode() ? $model->getDisplayMode() : 'icon_and_text';
+$curIconSvg     = $model ? (string) $model->getIconSvg() : '';
+$curIconUrl     = $model ? (string) $model->getIconUrl() : '';
+$curIconFaClass = $model ? (string) $model->getIconFaClass() : '';
+
+$faListPath = Mage::getBaseDir('app') . DS . 'code' . DS . 'local' . DS . 'Mibizum' . DS . 'Search' . DS . 'etc' . DS . 'fa47-icons.txt';
+$faIcons = is_readable($faListPath) ? array_values(array_filter(array_map('trim', file($faListPath)))) : array();
+$faCssUrl = Mage::getBaseUrl(Mage_Core_Model_Store::URL_TYPE_SKIN) . 'frontend/base/default/css/plumrocket/pramp/font-awesome.min.css';
+?>
+<link rel="stylesheet" href="<?php echo $this->escapeUrl($faCssUrl); ?>" />
+<div class="mibizum-sf"
+     data-upload-url="<?php echo $this->escapeUrl($uploadUrl); ?>"
+     data-palette-url="<?php echo $this->escapeUrl($paletteUrl); ?>"
+     data-suggest-text-url="<?php echo $this->escapeUrl($suggestTextUrl); ?>">
+
+  <input type="hidden" name="color_hex"      id="mibizum-sf-color"      value="<?php echo $this->escapeHtml($curColor); ?>" />
+  <input type="hidden" name="text_color_hex" id="mibizum-sf-text-color" value="<?php echo $this->escapeHtml($curTextColor); ?>" />
+  <input type="hidden" name="position"       id="mibizum-sf-position"   value="<?php echo $this->escapeHtml($curPosition); ?>" />
+  <input type="hidden" name="shape"          id="mibizum-sf-shape"      value="<?php echo $this->escapeHtml($curShape); ?>" />
+  <input type="hidden" name="display_mode"   id="mibizum-sf-display"    value="<?php echo $this->escapeHtml($curDisplayMode); ?>" />
+  <input type="hidden" name="icon_svg"       id="mibizum-sf-icon-svg"   value="<?php echo $this->escapeHtml($curIconSvg); ?>" />
+  <input type="hidden" name="icon_url"       id="mibizum-sf-icon-url"   value="<?php echo $this->escapeHtml($curIconUrl); ?>" />
+  <input type="hidden" name="icon_fa_class"  id="mibizum-sf-icon-fa"    value="<?php echo $this->escapeHtml($curIconFaClass); ?>" />
+
+  <div class="mibizum-sf__row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Background color') ?></div>
+    <p class="mibizum-sf__help"><?php echo $this->__('Reuse a color that another badge already uses (to keep things consistent) or pick a new one. If two system badges appear together, telling them apart by color helps.') ?></p>
+    <div class="mibizum-sf__color-wrap">
+      <button type="button" id="mibizum-sf-color-toggle" class="mibizum-sf__color-toggle">
+        <span class="mibizum-sf__color-chip" id="mibizum-sf-color-chip"></span>
+        <span id="mibizum-sf-color-name">…</span>
+        <span class="caret">▼</span>
+      </button>
+      <div id="mibizum-sf-color-dropdown" class="mibizum-sf__color-dropdown" hidden></div>
+      <div class="mibizum-sf__color-custom">
+        <span class="mibizum-sf__sep"><?php echo $this->__('or new:') ?></span>
+        <input type="color" id="mibizum-sf-color-newpicker" value="<?php echo $this->escapeHtml($curColor); ?>" />
+        <input type="text" id="mibizum-sf-color-newhex" placeholder="#RRGGBB" maxlength="7" />
+        <button type="button" id="mibizum-sf-color-apply" class="mibizum-sf__btn mibizum-sf__btn--primary"><?php echo $this->__('Apply') ?></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mibizum-sf__row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Font color') ?></div>
+    <p class="mibizum-sf__help"><?php echo $this->__('By default it adjusts automatically based on the background color (dark on light backgrounds, white on dark ones). Press "Auto" to return to the automatic calculation after changing it manually.') ?></p>
+    <div class="mibizum-sf__textcolor-wrap">
+      <span class="mibizum-sf__textcolor-preview" id="mibizum-sf-textcolor-preview" title="<?php echo Mage::helper('core')->quoteEscape($this->__('Preview with the chosen background')) ?>">Aa</span>
+      <input type="color" id="mibizum-sf-textcolor-picker" value="<?php echo $this->escapeHtml($curTextColor); ?>" />
+      <input type="text" id="mibizum-sf-textcolor-hex" placeholder="#RRGGBB" maxlength="7" value="<?php echo $this->escapeHtml($curTextColor); ?>" />
+      <button type="button" id="mibizum-sf-textcolor-auto" class="mibizum-sf__btn mibizum-sf__btn--ghost" title="<?php echo Mage::helper('core')->quoteEscape($this->__('Calculate from background luminance')) ?>"><?php echo $this->__('Auto') ?></button>
+    </div>
+  </div>
+
+  <div class="mibizum-sf__row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Position over the image') ?></div>
+    <div class="mibizum-sf__pickers mibizum-sf__pickers--position" id="mibizum-sf-position-picker">
+      <button type="button" data-val="top_left" class="mibizum-sf__pos">
+        <span class="mibizum-sf__pos-card"><span class="dot dot-tl"></span></span>
+        <span><?php echo $this->__('Top left') ?></span>
+      </button>
+      <button type="button" data-val="top_right" class="mibizum-sf__pos">
+        <span class="mibizum-sf__pos-card"><span class="dot dot-tr"></span></span>
+        <span><?php echo $this->__('Top right') ?></span>
+      </button>
+      <button type="button" data-val="bottom_left" class="mibizum-sf__pos">
+        <span class="mibizum-sf__pos-card"><span class="dot dot-bl"></span></span>
+        <span><?php echo $this->__('Bottom left') ?></span>
+      </button>
+      <button type="button" data-val="bottom_right" class="mibizum-sf__pos">
+        <span class="mibizum-sf__pos-card"><span class="dot dot-br"></span></span>
+        <span><?php echo $this->__('Bottom right') ?></span>
+      </button>
+      <button type="button" data-val="below_image" class="mibizum-sf__pos">
+        <span class="mibizum-sf__pos-card"><span class="bar bar-below"></span></span>
+        <span><?php echo $this->__('Below image') ?></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="mibizum-sf__row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Shape') ?></div>
+    <div class="mibizum-sf__pickers" id="mibizum-sf-shape-picker">
+      <button type="button" data-val="pill" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 999px;">Aa</span>
+        <span><?php echo $this->__('Pill') ?></span>
+      </button>
+      <button type="button" data-val="square_rounded" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 6px;">Aa</span>
+        <span><?php echo $this->__('Square') ?></span>
+      </button>
+      <button type="button" data-val="circle" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 50%; width:32px;height:32px;padding:0;">★</span>
+        <span><?php echo $this->__('Circle') ?></span>
+      </button>
+    </div>
+    <p class="mibizum-sf__help" id="mibizum-sf-shape-help"></p>
+  </div>
+
+  <div class="mibizum-sf__row" id="mibizum-sf-display-row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Display') ?></div>
+    <div class="mibizum-sf__pickers" id="mibizum-sf-display-picker">
+      <button type="button" data-val="icon_only" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 999px;">★</span>
+        <span><?php echo $this->__('Icon only') ?></span>
+      </button>
+      <button type="button" data-val="text_only" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 999px;">Aa</span>
+        <span><?php echo $this->__('Text only') ?></span>
+      </button>
+      <button type="button" data-val="icon_and_text" class="mibizum-sf__btn">
+        <span class="mibizum-sf__shape-preview" style="border-radius: 999px;">★Aa</span>
+        <span><?php echo $this->__('Icon + text') ?></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="mibizum-sf__row">
+    <div class="mibizum-sf__label"><?php echo $this->__('Icon') ?></div>
+    <div class="mibizum-sf__icon-wrap">
+      <div class="mibizum-sf__icon-preview" id="mibizum-sf-icon-preview" title="<?php echo Mage::helper('core')->quoteEscape($this->__('Preview with the current color and shape')) ?>"></div>
+      <div class="mibizum-sf__icon-controls">
+        <div class="mibizum-sf__dropzone" id="mibizum-sf-dropzone">
+          <input type="file" accept=".png,.jpg,.jpeg,.svg,.webp,image/*" style="display:none;" />
+          <div>
+            <strong><?php echo $this->__('Drag here') ?></strong> <?php echo $this->__('your icon (PNG/SVG/JPG/WebP, max 500&nbsp;KB)') ?><br>
+            <small><?php echo $this->__('or') ?> <a href="#" class="mibizum-sf__pick"><?php echo $this->__('select it from your computer') ?></a></small>
+            <div class="mibizum-sf__upload-status" id="mibizum-sf-upload-status"></div>
+          </div>
+        </div>
+        <details class="mibizum-sf__svg-details">
+          <summary><?php echo $this->__('Or paste inline SVG (advanced)') ?></summary>
+          <textarea id="mibizum-sf-svg-textarea" rows="4" placeholder="<?php echo Mage::helper('core')->quoteEscape($this->__("<svg viewBox='0 0 24 24'>…</svg> - use fill='currentColor' to recolor with the badge.")) ?>"><?php echo $this->escapeHtml($curIconSvg); ?></textarea>
+        </details>
+
+        <details class="mibizum-sf__fa-details" <?php echo $curIconFaClass !== '' ? 'open' : ''; ?>>
+          <summary><?php echo $this->__('Or choose a Font Awesome icon') ?></summary>
+          <div class="mibizum-sf__fa-search-wrap">
+            <input type="text" id="mibizum-sf-fa-search" class="mibizum-sf__fa-search input-text"
+                   placeholder="<?php echo Mage::helper('core')->quoteEscape($this->__('Search icon… (e.g. leaf, heart, flask)')) ?>" autocomplete="off" />
+            <button type="button" id="mibizum-sf-fa-clear" class="mibizum-sf__fa-clear" title="<?php echo Mage::helper('core')->quoteEscape($this->__('Remove FA icon')) ?>">×</button>
+          </div>
+          <div id="mibizum-sf-fa-current" class="mibizum-sf__fa-current">
+            <?php if ($curIconFaClass !== ''): ?>
+              <?php echo $this->__('Selected:') ?> <code><?php echo $this->escapeHtml($curIconFaClass); ?></code>
+              <i class="fa <?php echo $this->escapeHtml($curIconFaClass); ?>"></i>
+            <?php endif; ?>
+          </div>
+          <div id="mibizum-sf-fa-suggestions" class="mibizum-sf__fa-suggestions"></div>
+          <p class="mibizum-sf__help" style="margin-top: 0.5rem;">
+            <?php echo $this->__('Font Awesome 4.7 catalog (786 icons). If you select one, it replaces the SVG/image.') ?>
+          </p>
+        </details>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .mibizum-sf, .mibizum-sf * { color: #333; }
+  .mibizum-sf__row { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem 0; border-bottom: 1px solid #eee; }
+  .mibizum-sf__row:last-child { border-bottom: none; }
+  .mibizum-sf__label { font-weight: 600; color: #444 !important; font-size: 0.95rem; }
+  .mibizum-sf__help { color: #888 !important; font-size: 0.82rem; margin: 0.2rem 0 0; max-width: 720px; line-height: 1.45; }
+
+  .mibizum-sf__pickers { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .mibizum-sf__btn,
+  .mibizum-sf__btn span,
+  .mibizum-sf__btn:hover,
+  .mibizum-sf__btn:hover span,
+  .mibizum-sf__btn.is-selected,
+  .mibizum-sf__btn.is-selected span { color: #333 !important; }
+  .mibizum-sf__btn {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 0.25rem;
+    padding: 0.55rem 0.85rem; border: 2px solid #ddd; border-radius: 8px;
+    background: #fff; cursor: pointer; font-size: 0.82rem; min-width: 90px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .mibizum-sf__btn:hover { border-color: #8b3a87; background: #faf3fa; }
+  .mibizum-sf__btn.is-selected { border-color: #1e9c3c; background: #ecfaef; box-shadow: 0 1px 4px rgba(30,156,60,0.2); }
+  .mibizum-sf__btn--primary,
+  .mibizum-sf__btn--primary span,
+  .mibizum-sf__btn--primary:hover,
+  .mibizum-sf__btn--primary:hover span { color: #fff !important; }
+  .mibizum-sf__btn--primary { background: #8b3a87; border-color: #8b3a87; padding: 0.4rem 0.8rem; min-width: auto; }
+  .mibizum-sf__btn--primary:hover { background: #6e2c6c; border-color: #6e2c6c; }
+  .mibizum-sf__btn .mibizum-sf__shape-preview { color: #fff !important; }
+
+  .mibizum-sf__pos,
+  .mibizum-sf__pos span,
+  .mibizum-sf__pos:hover,
+  .mibizum-sf__pos:hover span,
+  .mibizum-sf__pos.is-selected,
+  .mibizum-sf__pos.is-selected span { color: #333 !important; }
+  .mibizum-sf__pickers--position .mibizum-sf__pos {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    padding: 0.5rem; border: 2px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; font-size: 0.78rem;
+    min-width: 90px; transition: border-color 0.15s, background 0.15s;
+  }
+  .mibizum-sf__pos:hover { border-color: #8b3a87; }
+  .mibizum-sf__pos.is-selected { border-color: #1e9c3c; background: #ecfaef; }
+  .mibizum-sf__pos-card { position: relative; width: 56px; height: 42px; background: #f4f4f6; border: 1px solid #ccc; border-radius: 4px; display: block; }
+  .mibizum-sf__pos-card .dot { position: absolute; width: 16px; height: 9px; background: #8b3a87; border-radius: 4px; }
+  .mibizum-sf__pos-card .dot-tl { top: 4px; left: 4px; }
+  .mibizum-sf__pos-card .dot-tr { top: 4px; right: 4px; }
+  .mibizum-sf__pos-card .dot-bl { bottom: 4px; left: 4px; }
+  .mibizum-sf__pos-card .dot-br { bottom: 4px; right: 4px; }
+  .mibizum-sf__pos-card .bar.bar-below { position: absolute; bottom: -7px; left: 0; right: 0; height: 7px; background: #8b3a87; border-radius: 0 0 3px 3px; }
+
+  .mibizum-sf__shape-preview {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #1e9c3c; color: #fff; padding: 0.25rem 0.6rem;
+    font-size: 0.75rem; font-weight: 600; min-width: 30px;
+  }
+
+  .mibizum-sf__color-wrap { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; position: relative; }
+  .mibizum-sf__color-toggle, .mibizum-sf__color-toggle span { color: #333 !important; }
+  .mibizum-sf__color-toggle {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.45rem 0.7rem; border: 2px solid #ddd; border-radius: 8px;
+    background: #fff; cursor: pointer; font-size: 0.85rem; min-width: 240px;
+  }
+  .mibizum-sf__color-toggle:hover { border-color: #8b3a87; }
+  .mibizum-sf__color-toggle .caret { margin-left: auto; color: #999 !important; font-size: 0.7rem; }
+  .mibizum-sf__color-chip { display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); }
+  .mibizum-sf__color-dropdown {
+    position: absolute; top: 100%; left: 0; z-index: 50;
+    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    max-height: 320px; overflow-y: auto; min-width: 280px; margin-top: 4px;
+  }
+  .mibizum-sf__color-item, .mibizum-sf__color-item .name, .mibizum-sf__color-item .used-by { color: #333 !important; }
+  .mibizum-sf__color-item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.7rem; cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .mibizum-sf__color-item:hover, .mibizum-sf__color-item.is-active { background: #f3e8f2; }
+  .mibizum-sf__color-item .chip { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); flex: 0 0 auto; }
+  .mibizum-sf__color-item .name { font-weight: 500; flex: 1 1 auto; }
+  .mibizum-sf__color-item .used-by { color: #888 !important; font-size: 0.78rem; }
+  .mibizum-sf__color-item .hex { color: #999 !important; font-family: monospace; font-size: 0.75rem; }
+  .mibizum-sf__color-empty { padding: 0.6rem 0.7rem; color: #999; font-style: italic; }
+  .mibizum-sf__color-custom { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  .mibizum-sf__color-custom .mibizum-sf__sep { color: #888; font-size: 0.85rem; }
+  .mibizum-sf__color-custom input[type=text] { padding: 0.3rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; width: 110px; }
+  .mibizum-sf__color-custom input[type=color] { width: 40px; height: 32px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; padding: 2px; }
+
+  .mibizum-sf__textcolor-wrap { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .mibizum-sf__textcolor-preview {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 56px; height: 32px; padding: 0 0.6rem; border-radius: 6px;
+    background: #1e9c3c; color: #fff; font-weight: 700; font-size: 0.95rem;
+    border: 1px solid rgba(0,0,0,0.15);
+  }
+  .mibizum-sf__textcolor-wrap input[type=color] { width: 40px; height: 32px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; padding: 2px; }
+  .mibizum-sf__textcolor-wrap input[type=text] { padding: 0.3rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; width: 110px; }
+  .mibizum-sf__btn--ghost,
+  .mibizum-sf__btn--ghost span,
+  .mibizum-sf__btn--ghost:hover,
+  .mibizum-sf__btn--ghost:hover span { color: #555 !important; }
+  .mibizum-sf__btn--ghost { background: #fff; border-color: #aaa; padding: 0.4rem 0.8rem; min-width: auto; font-weight: 500; }
+  .mibizum-sf__btn--ghost:hover { background: #f4f4f4; border-color: #888; }
+
+  .mibizum-sf__icon-wrap { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+  .mibizum-sf__icon-preview {
+    width: 80px; height: 80px; border-radius: 12px; background: #1e9c3c; color: #fff;
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  }
+  .mibizum-sf__icon-preview svg { width: 48px; height: 48px; fill: currentColor; stroke: currentColor; }
+  .mibizum-sf__icon-preview img { width: 56px; height: 56px; object-fit: contain; }
+  .mibizum-sf__icon-controls { flex: 1 1 300px; }
+  .mibizum-sf__dropzone {
+    border: 2px dashed #ccc; border-radius: 8px; padding: 1rem; background: #fafafa;
+    text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .mibizum-sf__dropzone:hover, .mibizum-sf__dropzone.is-active { border-color: #8b3a87; background: #f3e8f2; }
+  .mibizum-sf__pick { color: #8b3a87 !important; text-decoration: underline; }
+  .mibizum-sf__upload-status { font-size: 0.85em; margin-top: 0.4rem; }
+  .mibizum-sf__svg-details { margin-top: 0.6rem; }
+  .mibizum-sf__svg-details summary { cursor: pointer; color: #888 !important; font-size: 0.85rem; }
+  .mibizum-sf__svg-details textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 0.85rem; padding: 0.4rem; margin-top: 0.4rem; }
+
+  .mibizum-sf__fa-details { margin-top: 0.6rem; }
+  .mibizum-sf__fa-details summary { cursor: pointer; color: #888 !important; font-size: 0.85rem; }
+  .mibizum-sf__fa-details[open] summary { color: #444 !important; }
+  .mibizum-sf__fa-search-wrap { position: relative; display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+  .mibizum-sf__fa-search { flex: 1; padding: 0.4rem 0.6rem !important; font-size: 0.9rem; }
+  .mibizum-sf__fa-clear { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 0 0.6rem; cursor: pointer; font-size: 1rem; color: #555 !important; }
+  .mibizum-sf__fa-clear:hover { background: #fbe5e5; color: #d63d3d !important; border-color: #d63d3d; }
+  .mibizum-sf__fa-current { margin-top: 0.5rem; font-size: 0.85rem; color: #555 !important; min-height: 1.4em; }
+  .mibizum-sf__fa-current code { background: #f4f4f4; padding: 0.1rem 0.4rem; border-radius: 3px; }
+  .mibizum-sf__fa-current i.fa { margin-left: 0.3rem; color: #1e9c3c !important; }
+  .mibizum-sf__fa-suggestions { margin-top: 0.5rem; display: none; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.3rem; max-height: 320px; overflow-y: auto; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; }
+  .mibizum-sf__fa-suggestions.is-open { display: grid; }
+  .mibizum-sf__fa-item { display: flex; align-items: center; gap: 0.4rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 0.4rem 0.5rem; cursor: pointer; font-size: 0.78rem; color: #333 !important; text-align: left; line-height: 1.2; }
+  .mibizum-sf__fa-item:hover { background: #e8f5e9; border-color: #1e9c3c; }
+  .mibizum-sf__fa-item i.fa { font-size: 1.1rem; color: #1e9c3c !important; flex: 0 0 auto; width: 1.2em; text-align: center; }
+  .mibizum-sf__fa-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mibizum-sf__fa-empty { grid-column: 1 / -1; text-align: center; color: #888 !important; padding: 1rem; font-size: 0.85rem; }
+</style>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var root = document.querySelector('.mibizum-sf');
+  if (!root) return;
+
+  var uploadUrl       = root.getAttribute('data-upload-url');
+  var paletteUrl      = root.getAttribute('data-palette-url');
+  var suggestTextUrl  = root.getAttribute('data-suggest-text-url');
+
+  function setupPicker(hiddenId, containerId, btnSelector) {
+    var hidden = $(hiddenId);
+    var btns = root.querySelectorAll('#' + containerId + ' ' + btnSelector);
+    function setVal(v) {
+      hidden.value = v;
+      btns.forEach(function (b) { b.classList.toggle('is-selected', b.getAttribute('data-val') === v); });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () { setVal(b.getAttribute('data-val')); applyShapeRules(); syncIconPreview(); });
+    });
+    setVal(hidden.value);
+    return setVal;
+  }
+  setupPicker('mibizum-sf-position', 'mibizum-sf-position-picker', '.mibizum-sf__pos');
+  var setShape   = setupPicker('mibizum-sf-shape',   'mibizum-sf-shape-picker',   '.mibizum-sf__btn');
+  var setDisplay = setupPicker('mibizum-sf-display', 'mibizum-sf-display-picker', '.mibizum-sf__btn');
+
+  function applyShapeRules() {
+    if ($('mibizum-sf-shape').value === 'circle') {
+      setDisplay('icon_only');
+      $('mibizum-sf-display-row').style.opacity = '0.5';
+      $('mibizum-sf-shape-help').textContent = '<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Text does not fit in a circle, so icon only (forced).')) ?>';
+    } else {
+      $('mibizum-sf-display-row').style.opacity = '';
+      $('mibizum-sf-shape-help').textContent = '';
+    }
+  }
+  applyShapeRules();
+
+  // ---- COLOR PICKER ----
+  var $colorHidden     = $('mibizum-sf-color');
+  var $textColorHidden = $('mibizum-sf-text-color');
+  var $colorToggle     = $('mibizum-sf-color-toggle');
+  var $colorDropdown   = $('mibizum-sf-color-dropdown');
+  var $colorChip       = $('mibizum-sf-color-chip');
+  var $colorName       = $('mibizum-sf-color-name');
+  var palette = [];
+
+  // ---- TEXT COLOR PICKER ----
+  var $textColorPicker  = $('mibizum-sf-textcolor-picker');
+  var $textColorHex     = $('mibizum-sf-textcolor-hex');
+  var $textColorPreview = $('mibizum-sf-textcolor-preview');
+  var $textColorAuto    = $('mibizum-sf-textcolor-auto');
+  var textColorManuallyTouched = false;
+
+  function setTextColor(hex, fromAuto) {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    hex = hex.toUpperCase();
+    $textColorHidden.value = hex;
+    $textColorPicker.value = hex;
+    $textColorHex.value = hex;
+    syncTextColorPreview();
+    syncIconPreview();
+    if (!fromAuto) textColorManuallyTouched = true;
+  }
+
+  function syncTextColorPreview() {
+    if (!$textColorPreview) return;
+    $textColorPreview.style.background = $colorHidden.value || '#1e9c3c';
+    $textColorPreview.style.color = $textColorHidden.value || '#fff';
+  }
+
+  function autoSuggestTextColor(hex) {
+    var bg = hex || $colorHidden.value;
+    if (!/^#[0-9A-F]{6}$/i.test(bg)) return;
+    fetch(suggestTextUrl + (suggestTextUrl.indexOf('?') !== -1 ? '&' : '?') + 'color_hex=' + encodeURIComponent(bg), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { text_color_hex: '#FFFFFF' }; })
+      .then(function (data) { setTextColor(data.text_color_hex || '#FFFFFF', true); });
+  }
+
+  $textColorPicker.addEventListener('input', function () { setTextColor($textColorPicker.value); });
+  $textColorHex.addEventListener('input', function () {
+    if (/^#[0-9A-Fa-f]{6}$/.test($textColorHex.value)) setTextColor($textColorHex.value);
+  });
+  $textColorAuto.addEventListener('click', function () {
+    textColorManuallyTouched = false;
+    autoSuggestTextColor();
+  });
+
+  function selectColor(hex, textHex, label) {
+    $colorHidden.value = hex;
+    $colorChip.style.background = hex;
+    $colorName.textContent = label || hex;
+    $colorDropdown.hidden = true;
+    if (textHex && !textColorManuallyTouched) {
+      setTextColor(textHex, true);
+    } else if (!textColorManuallyTouched) {
+      autoSuggestTextColor(hex);
+    } else {
+      syncTextColorPreview();
+    }
+    syncIconPreview();
+  }
+
+  function renderPalette() {
+    $colorDropdown.innerHTML = '';
+    if (palette.length === 0) {
+      $colorDropdown.innerHTML = '<div class="mibizum-sf__color-empty"><?php echo Mage::helper('core')->jsQuoteEscape($this->__('No colors in use yet. Pick a new one →')) ?></div>';
+      return;
+    }
+    palette.forEach(function (c) {
+      var item = document.createElement('div');
+      item.className = 'mibizum-sf__color-item';
+      var chip = document.createElement('span'); chip.className = 'chip'; chip.style.background = c.color_hex;
+      var name = document.createElement('span'); name.className = 'name'; name.textContent = c.color_hex;
+      var usedBy = document.createElement('span'); usedBy.className = 'used-by';
+      usedBy.textContent = c.used_by && c.used_by.length ? '· ' + c.used_by.slice(0, 2).join(', ') + (c.used_by.length > 2 ? '…' : '') : '';
+      item.appendChild(chip); item.appendChild(name); item.appendChild(usedBy);
+      var label = c.used_by && c.used_by.length ? c.used_by[0] : c.color_hex;
+      item.addEventListener('click', function () { selectColor(c.color_hex, c.text_color_hex, label); });
+      $colorDropdown.appendChild(item);
+    });
+  }
+
+  function loadPalette() {
+    fetch(paletteUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (data) {
+        palette = data || [];
+        renderPalette();
+        var cur = palette.filter(function (c) { return (c.color_hex || '').toUpperCase() === ($colorHidden.value || '').toUpperCase(); })[0];
+        $colorChip.style.background = $colorHidden.value;
+        $colorName.textContent = cur && cur.used_by && cur.used_by.length ? cur.used_by[0] : ($colorHidden.value || '-');
+      })
+      .catch(function () {});
+  }
+  loadPalette();
+
+  $colorToggle.addEventListener('click', function () { $colorDropdown.hidden = !$colorDropdown.hidden; });
+  document.addEventListener('click', function (e) {
+    if (!$colorToggle.contains(e.target) && !$colorDropdown.contains(e.target)) $colorDropdown.hidden = true;
+  });
+
+  var $newPicker = $('mibizum-sf-color-newpicker');
+  var $newHex    = $('mibizum-sf-color-newhex');
+  $newPicker.addEventListener('input', function () { $newHex.value = $newPicker.value.toUpperCase(); });
+  $newHex.addEventListener('input', function () {
+    if (/^#[0-9A-Fa-f]{6}$/.test($newHex.value)) $newPicker.value = $newHex.value;
+  });
+  $('mibizum-sf-color-apply').addEventListener('click', function () {
+    var hex = ($newHex.value || $newPicker.value).toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(hex)) { alert('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Enter a valid #RRGGBB color.')) ?>'); return; }
+    fetch(suggestTextUrl + (suggestTextUrl.indexOf('?') !== -1 ? '&' : '?') + 'color_hex=' + encodeURIComponent(hex), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { color_hex: hex, text_color_hex: '#FFFFFF' }; })
+      .then(function (data) { selectColor(data.color_hex, data.text_color_hex, hex); });
+  });
+
+  // ---- DROPZONE ----
+  var $dropzone = $('mibizum-sf-dropzone');
+  var $fileInput = $dropzone.querySelector('input[type=file]');
+  var $pick = $dropzone.querySelector('.mibizum-sf__pick');
+  var $uploadStatus = $('mibizum-sf-upload-status');
+  var $svgTextarea = $('mibizum-sf-svg-textarea');
+  var $svgHidden = $('mibizum-sf-icon-svg');
+  var $urlHidden = $('mibizum-sf-icon-url');
+  var $faHidden  = $('mibizum-sf-icon-fa');
+
+  $pick.addEventListener('click', function (e) { e.preventDefault(); $fileInput.click(); });
+  $dropzone.addEventListener('click', function (e) { if (e.target.closest('a, input')) return; $fileInput.click(); });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    $dropzone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); $dropzone.classList.add('is-active'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    $dropzone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); $dropzone.classList.remove('is-active'); });
+  });
+  $dropzone.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length > 0) uploadIcon(e.dataTransfer.files[0]); });
+  $fileInput.addEventListener('change', function () { if ($fileInput.files.length > 0) uploadIcon($fileInput.files[0]); });
+
+  function uploadIcon(file) {
+    if (file.size > 512 * 1024) { setUploadStatus('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('File too large')) ?> (' + Math.round(file.size/1024) + ' KB).', true); return; }
+    setUploadStatus('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Uploading')) ?> ' + file.name + '…', false);
+    var fd = new FormData();
+    fd.append('icon_file', file);
+    if (typeof FORM_KEY !== 'undefined') fd.append('form_key', FORM_KEY);
+    fetch(uploadUrl, { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
+      .then(function (resp) {
+        var data = null; try { data = JSON.parse(resp.text); } catch (e) { setUploadStatus('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Response is not JSON.')) ?>', true); return; }
+        if (!data.ok) { setUploadStatus('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Error:')) ?> ' + (data.error || ''), true); return; }
+        $urlHidden.value = data.url;
+        var ext = (data.name || '').split('.').pop().toLowerCase();
+        if (ext !== 'svg') { $svgTextarea.value = ''; $svgHidden.value = ''; }
+        ensureIconVisible();
+        syncIconPreview();
+        setUploadStatus('✓ <?php echo Mage::helper('core')->jsQuoteEscape($this->__('Uploaded:')) ?> ' + data.name, false);
+      })
+      .catch(function () { setUploadStatus('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Network error.')) ?>', true); });
+  }
+  function setUploadStatus(msg, isErr) { $uploadStatus.textContent = msg || ''; $uploadStatus.style.color = isErr ? '#d63d3d' : '#1e9c3c'; }
+
+  /** Auto-switch display to "Icon + text" if it was on "Text only" when choosing an icon. */
+  function ensureIconVisible() {
+    var $disp = $('mibizum-sf-display');
+    if ($disp && $disp.value === 'text_only') {
+      setDisplay('icon_and_text');
+    }
+  }
+
+  $svgTextarea.addEventListener('input', function () {
+    $svgHidden.value = $svgTextarea.value;
+    if ($svgTextarea.value.trim() !== '') ensureIconVisible();
+    syncIconPreview();
+  });
+
+  // ---- ICON PREVIEW ----
+  function syncIconPreview() {
+    var $preview = $('mibizum-sf-icon-preview');
+    if (!$preview) return;
+    var color = $colorHidden.value || '#1e9c3c';
+    var text  = $textColorHidden.value || '#fff';
+    var shape = $('mibizum-sf-shape').value;
+    $preview.style.background = color;
+    $preview.style.color = text;
+    if (shape === 'circle') $preview.style.borderRadius = '50%';
+    else if (shape === 'square_rounded') $preview.style.borderRadius = '12px';
+    else $preview.style.borderRadius = '999px';
+
+    var svg = $svgHidden.value && $svgHidden.value.trim();
+    var url = $urlHidden.value && $urlHidden.value.trim();
+    var fa  = $faHidden && $faHidden.value && $faHidden.value.trim();
+    // Order: FA > SVG > URL (consistent with the frontend).
+    if (fa) {
+      $preview.innerHTML = '<i class="fa ' + fa.replace(/"/g, '') + '" style="font-size:36px;line-height:1;"></i>';
+    } else if (svg) {
+      $preview.innerHTML = svg;
+      var inner = $preview.querySelector('svg');
+      if (inner) { inner.style.width = '48px'; inner.style.height = '48px'; }
+    } else if (url) {
+      $preview.innerHTML = '<img src="' + url.replace(/"/g, '&quot;') + '" alt="">';
+    } else {
+      $preview.innerHTML = '<span style="font-size:1.6rem;">?</span>';
+    }
+  }
+  syncIconPreview();
+  syncTextColorPreview();
+
+  // ---- FONT AWESOME PICKER ----
+  var $faSearch  = $('mibizum-sf-fa-search');
+  var $faSuggest = $('mibizum-sf-fa-suggestions');
+  var $faClear   = $('mibizum-sf-fa-clear');
+  var $faCurrent = $('mibizum-sf-fa-current');
+  var faList     = <?php echo json_encode(array_values($faIcons), JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  if (!Array.isArray(faList)) faList = [];
+  var FA_MAX = 60;
+
+  function renderFaCurrent(cls) {
+    if (!$faCurrent) return;
+    $faCurrent.innerHTML = cls
+      ? '<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Selected:')) ?> <code>' + cls + '</code> <i class="fa ' + cls + '" style="font-size:1.4rem;vertical-align:middle;"></i>'
+      : '';
+  }
+  function renderFaSuggestions(query) {
+    if (!$faSuggest) return;
+    $faSuggest.innerHTML = '';
+    var q = (query || '').toLowerCase().trim();
+    if (q.length < 2) { $faSuggest.classList.remove('is-open'); return; }
+    var matches = [];
+    for (var i = 0; i < faList.length && matches.length < FA_MAX; i++) {
+      if (faList[i].indexOf(q) !== -1) matches.push(faList[i]);
+    }
+    if (matches.length === 0) {
+      $faSuggest.innerHTML = '<div class="mibizum-sf__fa-empty"><?php echo Mage::helper('core')->jsQuoteEscape($this->__('No matches.')) ?></div>';
+      $faSuggest.classList.add('is-open');
+      return;
+    }
+    matches.forEach(function (cls) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'mibizum-sf__fa-item';
+      item.title = cls;
+      item.innerHTML = '<i class="fa ' + cls + '"></i><span>' + cls + '</span>';
+      item.addEventListener('click', function () { selectFa(cls); });
+      $faSuggest.appendChild(item);
+    });
+    $faSuggest.classList.add('is-open');
+  }
+  function selectFa(cls) {
+    if (!$faHidden) return;
+    $faHidden.value = cls;
+    if ($faSearch) $faSearch.value = '';
+    if ($faSuggest) { $faSuggest.innerHTML = ''; $faSuggest.classList.remove('is-open'); }
+    $svgHidden.value = '';
+    $urlHidden.value = '';
+    if ($svgTextarea) $svgTextarea.value = '';
+    ensureIconVisible();
+    renderFaCurrent(cls);
+    syncIconPreview();
+  }
+  if ($faSearch) {
+    $faSearch.addEventListener('input', function () { renderFaSuggestions($faSearch.value); });
+    $faSearch.addEventListener('focus', function () { if ($faSearch.value.length >= 2) $faSuggest.classList.add('is-open'); });
+  }
+  if ($faClear) {
+    $faClear.addEventListener('click', function () {
+      if ($faHidden) $faHidden.value = '';
+      renderFaCurrent('');
+      syncIconPreview();
+    });
+  }
+  document.addEventListener('click', function (e) {
+    if ($faSuggest && !$faSuggest.contains(e.target) && e.target !== $faSearch) {
+      $faSuggest.classList.remove('is-open');
+    }
+  });
+})();
+</script>

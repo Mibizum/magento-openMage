@@ -1,0 +1,130 @@
+<?php
+/**
+ * Global banner for the pending queue.
+ *
+ * @var Mibizum_Sync_Block_Adminhtml_QueueNotice $this
+ *
+ * The block's _toHtml already filters (queue==0, no ACL, Reindex screen);
+ * by the time we get here there are always >0 pending and the banner should render.
+ */
+$pending = $this->getPending();
+$locked  = $this->getLocked();
+$drainUrl = $this->escapeUrl($this->getDrainUrl());
+$formKey  = $this->escapeHtml($this->getFormKey());
+?>
+<div class="mibizum-queue-notice"
+     data-mibizum-drain-url="<?php echo $drainUrl; ?>"
+     data-mibizum-form-key="<?php echo $formKey; ?>">
+  <span class="mibizum-qn__icon">⟳</span>
+  <span class="mibizum-qn__text">
+    <strong><?php echo (int) $pending; ?></strong>
+    <?php echo $this->__('products pending update in the search engine'); ?><?php if ($locked > 0): ?>
+      <span class="mibizum-qn__locked">· <?php echo (int) $locked; ?> <?php echo $this->__('in progress'); ?></span>
+    <?php endif; ?>
+  </span>
+  <button type="button" class="mibizum-qn__btn">
+    <?php echo $this->__('Apply changes to the search engine'); ?>
+  </button>
+  <span class="mibizum-qn__status" aria-live="polite"></span>
+</div>
+
+<style>
+.mibizum-queue-notice {
+    background: #fff7e0;
+    border-bottom: 1px solid #f0c36d;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: #6a5b1c;
+}
+.mibizum-queue-notice .mibizum-qn__icon {
+    font-size: 16px;
+    line-height: 1;
+}
+.mibizum-queue-notice .mibizum-qn__text {
+    flex: 1;
+}
+.mibizum-queue-notice .mibizum-qn__text strong {
+    color: #2f2f2f;
+    font-weight: 700;
+}
+.mibizum-queue-notice .mibizum-qn__locked {
+    color: #999;
+    margin-left: 4px;
+}
+.mibizum-queue-notice .mibizum-qn__btn {
+    background: #f0ad4e;
+    color: #fff;
+    border: 1px solid #eea236;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.mibizum-queue-notice .mibizum-qn__btn:hover {
+    background: #ec971f;
+}
+.mibizum-queue-notice .mibizum-qn__btn:disabled {
+    background: #d9d9d9;
+    border-color: #ccc;
+    color: #777;
+    cursor: default;
+}
+.mibizum-queue-notice .mibizum-qn__status {
+    font-size: 11px;
+    color: #555;
+}
+.mibizum-queue-notice .mibizum-qn__status.is-error { color: #a94442; }
+.mibizum-queue-notice .mibizum-qn__status.is-ok    { color: #3c763d; }
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+(function () {
+    var root = document.querySelector('.mibizum-queue-notice');
+    if (!root || root._mibizumBound) return;
+    root._mibizumBound = true;
+
+    var url = root.getAttribute('data-mibizum-drain-url');
+    var key = root.getAttribute('data-mibizum-form-key');
+    var btn = root.querySelector('.mibizum-qn__btn');
+    var status = root.querySelector('.mibizum-qn__status');
+
+    if (!btn || !url || !key) return;
+
+    btn.addEventListener('click', function () {
+        btn.disabled = true;
+        status.className = 'mibizum-qn__status';
+        status.textContent = '⏳ <?php echo $this->__('applying…'); ?>';
+
+        new Ajax.Request(url, {
+            method: 'post',
+            parameters: { form_key: key },
+            requestHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
+            onSuccess: function (resp) {
+                var data = null;
+                try { data = resp.responseJSON || JSON.parse(resp.responseText); } catch (e) {}
+                if (data && data.success) {
+                    status.className = 'mibizum-qn__status is-ok';
+                    status.textContent = data.message || '<?php echo $this->__('done - reloading…'); ?>';
+                    setTimeout(function () { window.location.reload(); }, 1200);
+                } else {
+                    status.className = 'mibizum-qn__status is-error';
+                    status.textContent = (data && data.message) ? data.message : '<?php echo $this->__('error processing the queue'); ?>';
+                    btn.disabled = false;
+                }
+            },
+            onFailure: function (resp) {
+                status.className = 'mibizum-qn__status is-error';
+                status.textContent = 'HTTP ' + (resp ? resp.status : '?');
+                btn.disabled = false;
+            }
+        });
+    });
+})();
+//]]>
+</script>

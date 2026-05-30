@@ -1,0 +1,373 @@
+<?xml version="1.0"?>
+<!--
+  Mibizum_Sync - Magento module configuration.
+
+  Defines:
+    - Version + setup (install/upgrade SQL scripts)
+    - Models, Helpers, Blocks, Resource entities (mibizum_sync_* tables)
+    - Catalog and stock observers (enqueue operations without blocking save)
+    - Nightly fullReindex cron (3am) + drainQueue
+    - Admin router for manual actions (Test connection, Resync, Drain)
+    - Admin ACL
+    - Safe defaults: enabled=0, no API key, no slug
+
+  Frontend behavior:
+    - The native catalogsearch_resource/fulltext is overridden so that
+      `/catalogsearch/result/?q=X` uses the search engine via the SaaS API
+      instead of MySQL MATCH AGAINST. If the engine returns a 5xx the bridge
+      falls back to the parent (native MySQL), so the store is never left
+      without search.
+    - The <frontend> layout auto-injects the widget SDK on every page, so the
+      merchant does not need to edit the Magento theme to enable the widget.
+-->
+<config>
+    <modules>
+        <Mibizum_Sync>
+            <!-- Module version. On a fresh install, Magento runs install-0.1.0
+                 and then ALL upgrade scripts whose range (from->to) falls within
+                 [0.1.0, version], in order (a contiguous chain is not required,
+                 so the 0.5.2->0.5.3-0.6.0 jump is fine).
+                 0.6.1 = production-ready release (safe-disable hardening).
+                 0.6.2 = capture SKU on delete so removals actually hit the
+                 SKU-keyed index (was deleting by entity_id, a no-op).
+                 0.6.3 = the Enter override gates on the SEARCH key
+                 (isSearchEnabled) instead of the indexer key, so search-only
+                 setups work without indexing from Magento (code-only). -->
+            <version>0.6.3</version>
+        </Mibizum_Sync>
+    </modules>
+
+    <!-- ================================================================ -->
+    <!-- Global: classes, helpers, resources, observers                   -->
+    <!-- ================================================================ -->
+    <global>
+        <models>
+            <!-- Override Magento's native Fulltext so that
+                 `/catalogsearch/result/?q=X` uses the search engine via the
+                 SaaS API instead of MySQL MATCH AGAINST. Result: the native
+                 SearchBox and the widget return the same hits. Robustness: if
+                 the engine returns a 5xx, fall back to the parent (native
+                 MySQL) so the store is never left without search. -->
+            <catalogsearch_resource>
+                <rewrite>
+                    <fulltext>Mibizum_Sync_Model_NativeSearchBridge</fulltext>
+                </rewrite>
+            </catalogsearch_resource>
+
+            <mibizum_sync>
+                <class>Mibizum_Sync_Model</class>
+                <resourceModel>mibizum_sync_resource</resourceModel>
+            </mibizum_sync>
+            <mibizum_sync_resource>
+                <class>Mibizum_Sync_Model_Resource</class>
+                <entities>
+                    <attributeConfig>
+                        <table>mibizum_sync_attribute_config</table>
+                    </attributeConfig>
+                    <index_queue>
+                        <table>mibizum_sync_index_queue</table>
+                    </index_queue>
+                    <nature>
+                        <table>mibizum_sync_nature_badges</table>
+                    </nature>
+                    <natureCategory>
+                        <table>mibizum_sync_nature_badge_categories</table>
+                    </natureCategory>
+                    <systemOverride>
+                        <table>mibizum_sync_system_badge_overrides</table>
+                    </systemOverride>
+                    <attributeBadge>
+                        <table>mibizum_sync_attribute_badges</table>
+                    </attributeBadge>
+                    <attributeBadgeCategory>
+                        <table>mibizum_sync_attribute_badge_categories</table>
+                    </attributeBadgeCategory>
+                    <!-- Transitional entity: the badge_palette table is created
+                         in upgrade-0.2.0-0.3.0 and DROPPED in upgrade-0.3.0-0.4.0.
+                         The entity registration is still needed so the
+                         intermediate upgrade scripts can resolve the table name
+                         with getTable('mibizum_sync/badgePalette') on a fresh
+                         install. After 0.4.0 the table no longer exists, but
+                         keeping the alias declared breaks nothing. -->
+                    <badgePalette>
+                        <table>mibizum_sync_badge_palette</table>
+                    </badgePalette>
+                </entities>
+            </mibizum_sync_resource>
+        </models>
+
+        <helpers>
+            <mibizum_sync>
+                <class>Mibizum_Sync_Helper</class>
+            </mibizum_sync>
+        </helpers>
+
+        <blocks>
+            <mibizum_sync>
+                <class>Mibizum_Sync_Block</class>
+            </mibizum_sync>
+        </blocks>
+
+        <resources>
+            <mibizum_sync_setup>
+                <setup>
+                    <module>Mibizum_Sync</module>
+                    <class>Mage_Core_Model_Resource_Setup</class>
+                </setup>
+            </mibizum_sync_setup>
+        </resources>
+
+        <events>
+            <!-- Product saved -> enqueue upsert -->
+            <catalog_product_save_after>
+                <observers>
+                    <mibizum_sync_reindex_product>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>onProductSaveAfter</method>
+                    </mibizum_sync_reindex_product>
+                </observers>
+            </catalog_product_save_after>
+
+            <!-- Product about to be deleted -> enqueue delete with SKU -->
+            <catalog_product_delete_before>
+                <observers>
+                    <mibizum_sync_remove_product>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>onProductDeleteBefore</method>
+                    </mibizum_sync_remove_product>
+                </observers>
+            </catalog_product_delete_before>
+
+            <!-- Stock change -> enqueue upsert (affects the "Out of stock" badge) -->
+            <cataloginventory_stock_item_save_after>
+                <observers>
+                    <mibizum_sync_stock_change>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>onStockChange</method>
+                    </mibizum_sync_stock_change>
+                </observers>
+            </cataloginventory_stock_item_save_after>
+
+            <!--
+              When the merchant saves the Mibizum Sync section in System Config,
+              the `frontend/*` and `testing/*` fields (together with
+              `general/enabled`) are synced UP to the SaaS via
+              PATCH /api/tenant/settings, so the SaaS panel reflects what is set
+              in the Magento admin. Bidirectional sync: the
+              /api/v1/runtime-config endpoint remains the source of truth for the
+              SDK (it reads from the SaaS), but the Magento admin can write from
+              here.
+            -->
+            <admin_system_config_changed_section_mibizum_sync>
+                <observers>
+                    <mibizum_sync_push_settings_to_saas>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>onAdminConfigSaved</method>
+                    </mibizum_sync_push_settings_to_saas>
+                </observers>
+            </admin_system_config_changed_section_mibizum_sync>
+        </events>
+    </global>
+
+    <!-- ================================================================ -->
+    <!-- Frontend: auto-inject the widget SDK on every page so the         -->
+    <!-- merchant does not need to edit the Magento theme to enable it.    -->
+    <!-- ================================================================ -->
+    <frontend>
+        <translate>
+            <modules>
+                <Mibizum_Sync>
+                    <files>
+                        <default>Mibizum_Sync.csv</default>
+                    </files>
+                </Mibizum_Sync>
+            </modules>
+        </translate>
+        <layout>
+            <updates>
+                <mibizum_sync>
+                    <file>mibizum_sync.xml</file>
+                </mibizum_sync>
+            </updates>
+        </layout>
+    </frontend>
+
+    <!-- ================================================================ -->
+    <!-- Cron                                                              -->
+    <!-- ================================================================ -->
+    <crontab>
+        <jobs>
+            <!-- Nightly fullReindex: enqueues ALL visible products (excludes
+                 configurable children) and drains the queue. -->
+            <mibizum_sync_full_reindex>
+                <schedule>
+                    <cron_expr>0 3 * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>mibizum_sync/scheduler::fullReindex</model>
+                </run>
+            </mibizum_sync_full_reindex>
+
+            <!-- drainQueue every 5 min: processes whatever the observers enqueued. -->
+            <mibizum_sync_drain>
+                <schedule>
+                    <cron_expr>*/5 * * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>mibizum_sync/scheduler::drainQueue</model>
+                </run>
+            </mibizum_sync_drain>
+
+            <!-- applyEngineSettings re-applies the schema
+                 (searchable/filterable/sortable) to the index every night at
+                 03:30, 30 min after the fullReindex. The fullReindex already
+                 calls it internally as step 0; this dedicated cron is defensive
+                 (it covers the case of the schema changing without a fullReindex
+                 having been triggered). -->
+            <mibizum_sync_apply_settings>
+                <schedule>
+                    <cron_expr>30 3 * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>mibizum_sync/scheduler::applyEngineSettings</model>
+                </run>
+            </mibizum_sync_apply_settings>
+        </jobs>
+    </crontab>
+
+    <!-- ================================================================ -->
+    <!-- Admin: ACL + router + admin translations                          -->
+    <!-- ================================================================ -->
+    <adminhtml>
+        <translate>
+            <modules>
+                <Mibizum_Sync>
+                    <files>
+                        <default>Mibizum_Sync.csv</default>
+                    </files>
+                </Mibizum_Sync>
+            </modules>
+        </translate>
+
+        <!-- Admin layout: loads the reusable mibizum-multiselect-table widget
+             in any backend form (the category picker for Natures and Attribute
+             Badges). -->
+        <layout>
+            <updates>
+                <mibizum_sync>
+                    <file>mibizum_sync.xml</file>
+                </mibizum_sync>
+            </updates>
+        </layout>
+
+        <acl>
+            <resources>
+                <admin>
+                    <children>
+                        <system>
+                            <children>
+                                <config>
+                                    <children>
+                                        <mibizum_sync>
+                                            <title>Mibizum Sync - Connection and Sync</title>
+                                        </mibizum_sync>
+                                        <mibizum_sync_attributes>
+                                            <title>Mibizum Sync - Indexable attributes</title>
+                                        </mibizum_sync_attributes>
+                                        <mibizum_sync_badges>
+                                            <title>Mibizum Sync - Badges</title>
+                                        </mibizum_sync_badges>
+                                    </children>
+                                </config>
+                            </children>
+                        </system>
+                    </children>
+                </admin>
+            </resources>
+        </acl>
+    </adminhtml>
+
+    <!-- Admin router: adminhtml/mibizum_sync_* routes for the controllers that
+         serve the Natures/Attributes/Badges/Reindex grids and forms. -->
+    <admin>
+        <routers>
+            <adminhtml>
+                <args>
+                    <modules>
+                        <mibizum_sync before="Mage_Adminhtml">Mibizum_Sync_Adminhtml</mibizum_sync>
+                    </modules>
+                </args>
+            </adminhtml>
+        </routers>
+    </admin>
+
+    <!-- ================================================================ -->
+    <!-- Defaults: everything off at install time. The merchant must enable
+         it after configuring the API key + Test connection.
+         ================================================================ -->
+    <default>
+        <mibizum_sync>
+            <!-- Defaults for the `general`, `frontend` and `testing` groups. -->
+            <general>
+                <enabled>0</enabled>
+                <feature_flag_param></feature_flag_param>
+                <data_source_slug>products</data_source_slug>
+                <debug_mode>0</debug_mode>
+            </general>
+            <frontend>
+                <show_category_facets>0</show_category_facets>
+                <title_strip_strings></title_strip_strings>
+                <show_price>1</show_price>
+                <show_formats>1</show_formats>
+                <cache_max_entries>50</cache_max_entries>
+                <results_limit>24</results_limit>
+                <overlay_min_width>360</overlay_min_width>
+                <overlay_max_width>900</overlay_max_width>
+            </frontend>
+            <testing>
+                <mode>0</mode>
+                <ip_whitelist></ip_whitelist>
+                <!-- The default points to `#search`, which is the id of the
+                     native Magento 1.x SearchBox input (the SDK opens the
+                     overlay when that element is clicked/focused). -->
+                <input_selector>#search</input_selector>
+            </testing>
+            <connection>
+                <enabled>0</enabled>
+                <api_url>https://app.mibizum.io</api_url>
+                <api_key></api_key>
+                <data_source_slug></data_source_slug>
+                <debug_mode>0</debug_mode>
+            </connection>
+            <sync>
+                <batch_size>100</batch_size>
+                <max_attempts>10</max_attempts>
+                <timeout_seconds>15</timeout_seconds>
+            </sync>
+            <!-- Badge labels are intentionally NOT seeded here. When empty, the
+                 helper falls back to the translated default (e.g. __('Out of
+                 stock')) which the locale CSV renders in the merchant's
+                 language. Only the non-text defaults are seeded. -->
+            <badges>
+                <out_of_stock_enabled>1</out_of_stock_enabled>
+                <in_offer_enabled>1</in_offer_enabled>
+                <low_stock_enabled>1</low_stock_enabled>
+                <low_stock_threshold>5</low_stock_threshold>
+                <new_enabled>0</new_enabled>
+                <new_days>30</new_days>
+                <featured_enabled>0</featured_enabled>
+            </badges>
+        </mibizum_sync>
+        <mibizum_sync_badges>
+            <types>
+                <show_natures>1</show_natures>
+                <show_attributes>1</show_attributes>
+                <show_system>1</show_system>
+            </types>
+        </mibizum_sync_badges>
+    </default>
+</config>

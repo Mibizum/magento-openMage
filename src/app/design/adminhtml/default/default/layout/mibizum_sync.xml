@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  Mibizum_Sync - Admin layout.
+
+  Injects shared CSS/JS into every admin screen (the <default>
+  handle). The mibizum-searchable-select component auto-binds on
+  DOMContentLoaded, so we just "turn it on" by loading the two
+  files: any block that outputs the markup
+  <div class="mibizum-searchable-select">...</div> activates it.
+-->
+<layout version="0.1.0">
+    <default>
+        <reference name="head">
+            <action method="addItem">
+                <type>skin_css</type>
+                <name>mibizum_sync/searchable-select.css</name>
+            </action>
+            <action method="addItem">
+                <type>skin_js</type>
+                <name>mibizum_sync/searchable-select.js</name>
+            </action>
+            <action method="addItem">
+                <type>skin_css</type>
+                <name>mibizum_sync/multiselect-table.css</name>
+            </action>
+            <action method="addItem">
+                <type>skin_js</type>
+                <name>mibizum_sync/multiselect-table.js</name>
+            </action>
+        </reference>
+
+        <!--
+          Persistent "pending queue" banner: the block renders empty when the
+          queue is clean (it adds no visual noise). When there is more than 0,
+          a yellow strip appears on ANY admin screen with a button that
+          triggers the drain in the background without taking the user away
+          from where they are. Inserted into `notifications` (the admin's
+          native core/text_list) after the system messages; it appears right
+          above the page title.
+        -->
+        <reference name="notifications">
+            <block type="mibizum_sync/adminhtml_queueNotice" name="mibizum_sync.queue_notice"/>
+        </reference>
+    </default>
+</layout>

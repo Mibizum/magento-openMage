@@ -1,0 +1,521 @@
+<?xml version="1.0"?>
+<!--
+  Mibizum_Sync v0.2 - Magento admin configuration screen.
+
+  Config paths ALIGNED with the Helper's XML_PATH_* constants:
+
+    mibizum_sync/connection/enabled            <- bool
+    mibizum_sync/connection/api_url            <- string (default https://app.mibizum.io)
+    mibizum_sync/connection/api_key            <- obscure (encrypted in DB)
+    mibizum_sync/connection/data_source_slug   <- string (optional)
+    mibizum_sync/connection/debug_mode         <- bool
+
+    mibizum_sync/sync/batch_size               <- int (1..500, default 100)
+    mibizum_sync/sync/max_attempts             <- int (default 10)
+    mibizum_sync/sync/timeout_seconds          <- int (default 15)
+
+    mibizum_sync_badges/types/show_natures     <- bool
+    mibizum_sync_badges/types/show_attributes  <- bool
+    mibizum_sync_badges/types/show_system      <- bool
+
+    mibizum_sync/badges/{type}_enabled, _label, _threshold, _days  (system badges)
+
+    mibizum_sync/general/feature_flag_param    <- string
+    mibizum_sync/frontend/show_category_facets <- bool
+    mibizum_sync/frontend/title_strip_strings  <- text (csv)
+    mibizum_sync/frontend/show_price           <- bool
+    mibizum_sync/frontend/show_formats         <- bool
+    mibizum_sync/frontend/cache_max_entries    <- int (default 50)
+    mibizum_sync/frontend/results_limit        <- int (default 24)
+    mibizum_sync/frontend/overlay_min_width    <- int (default 360)
+    mibizum_sync/frontend/overlay_max_width    <- int (default 900)
+    mibizum_sync/testing/mode                  <- bool
+    mibizum_sync/testing/ip_whitelist          <- text (whitespace/comma separated)
+    mibizum_sync/testing/input_selector        <- string (default '#mibizum-search-input')
+
+  The General, Frontend and Testing mode groups expose the same settings in the
+  Magento admin as in the Mibizum SaaS panel. The frontend/* and testing/*
+  fields affect the V1 widget and the /api/v1/search endpoint; an Observer
+  PATCHes the Mibizum SaaS on save so the SaaS panel and the Magento admin
+  stay in bidirectional sync.
+-->
+<config>
+    <!-- Top-level Mibizum tab -->
+    <tabs>
+        <mibizum_sync translate="label" module="mibizum_sync">
+            <label>Mibizum</label>
+            <sort_order>500</sort_order>
+        </mibizum_sync>
+    </tabs>
+
+    <sections>
+        <mibizum_sync translate="label" module="mibizum_sync">
+            <label>Mibizum Sync</label>
+            <tab>mibizum_sync</tab>
+            <frontend_type>text</frontend_type>
+            <sort_order>10</sort_order>
+            <show_in_default>1</show_in_default>
+            <show_in_website>1</show_in_website>
+            <show_in_store>1</show_in_store>
+
+            <groups>
+
+                <!-- ============================================================
+                     GENERAL: global module activation plus the URL kill-switch.
+                     The `enabled` field mirrors `connection/enabled` for
+                     backward compatibility. `feature_flag_param` and
+                     `debug_mode` live here so the merchant finds them in a
+                     consistent, familiar place.
+                     ============================================================ -->
+                <general translate="label comment">
+                    <label>General</label>
+                    <comment>Global module activation and URL kill-switch.</comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>5</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <show_in_website>1</show_in_website>
+                    <show_in_store>1</show_in_store>
+                    <fields>
+                        <enabled translate="label comment">
+                            <label>Enable Mibizum_Sync</label>
+                            <comment>When disabled, the frontend does NOT load the Mibizum SDK and the Enter override (`/catalogsearch/result/`) falls back to native MySQL. Useful to pause without uninstalling.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </enabled>
+                        <feature_flag_param translate="label comment">
+                            <label>Feature flag URL parameter</label>
+                            <comment>For example "searchv2" (/search?searchv2=1) forces Mibizum_Sync on even when it is globally disabled. Useful for internal testing without exposing the change to the public.</comment>
+                            <frontend_type>text</frontend_type>
+                            <sort_order>20</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </feature_flag_param>
+                        <!-- data_source_slug removed from the `general` group:
+                             it duplicated the connection field. It now only
+                             exists in connection/data_source_slug. -->
+                        <debug_mode translate="label comment">
+                            <label>Debug mode</label>
+                            <comment>Shows extra technical information in the admin (for example, the raw index status data). For diagnostics (leave it off during normal use).</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>40</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </debug_mode>
+                    </fields>
+                </general>
+
+                <!-- ============================================================
+                     FRONTEND: Mibizum overlay/SDK behavior. These fields are
+                     persisted in core_config_data and an Observer syncs them
+                     UP to the Mibizum SaaS panel (data_source.widgetConfig +
+                     search_settings) via PATCH on save, so the SaaS panel and
+                     the Magento admin stay in bidirectional sync.
+                     ============================================================ -->
+                <frontend translate="label comment">
+                    <label>Frontend</label>
+                    <comment>Search overlay behavior on the storefront. Changes here require no code edits (on save they are automatically PATCHed to the Mibizum panel).</comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>15</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <show_in_website>1</show_in_website>
+                    <show_in_store>1</show_in_store>
+                    <fields>
+                        <!-- The merchant pastes here the widget snippet copied
+                             from the Mibizum panel (Domains -> JS Code). The
+                             module injects it VERBATIM into the <head>; it no
+                             longer builds the <script> itself. Empty = nothing
+                             is injected. -->
+                        <widget_snippet translate="label comment">
+                            <label>Widget snippet (paste from the panel)</label>
+                            <comment><![CDATA[Paste here the code that the Mibizum panel gives you under <strong>Domains -> JS Code</strong>. The module will inject it as-is into the storefront <code>&lt;head&gt;</code>. <br/>The snippet points to <code>/sdk/v1.js</code> (evergreen version: it updates automatically within the 1.x range, without touching your structure or CSS). If you need to pin a specific version, the panel can also give you a "pinned" snippet. <br/><strong>Empty = the widget is not loaded.</strong>]]></comment>
+                            <frontend_type>textarea</frontend_type>
+                            <sort_order>1</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </widget_snippet>
+                        <show_category_facets translate="label comment">
+                            <label>Show category filter row</label>
+                            <comment>When enabled, a row of clickable category pills (exclude) appears above the results. Disabled by default: categories are already shown on each product via category badges.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </show_category_facets>
+                        <title_strip_strings translate="label comment">
+                            <label>Strings to strip from the title</label>
+                            <comment>COMMA-separated list of strings to visually remove from each product title in the results. Affects only the frontend render (search still indexes the full title). For example, "Essential oil of , Vegetable oil of , Hydrosol of " turns "Essential oil of Chinese tea tree" into "Chinese tea tree". Case-insensitive.</comment>
+                            <frontend_type>textarea</frontend_type>
+                            <sort_order>15</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </title_strip_strings>
+                        <show_price translate="label comment">
+                            <label>Show price on each product</label>
+                            <comment>When disabled, the price does NOT appear on each overlay hit. Useful for stores where the price is calculated at add-to-cart or requires login.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>16</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </show_price>
+                        <show_formats translate="label comment">
+                            <label>Show format chips</label>
+                            <comment>When enabled, the product's available formats (10ml / 30ml / ...) appear below the price (or below the title if the price is hidden), with out-of-stock ones struck through. Applies only to grouped/configurable products with a detectable format.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>17</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </show_formats>
+                        <cache_max_entries translate="label comment">
+                            <label>LRU cache maximum size</label>
+                            <comment>How many distinct queries to keep in the SDK's memory. Default 50.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>50</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </cache_max_entries>
+                        <results_limit translate="label comment">
+                            <label>Results per search</label>
+                            <comment>How many products to request from the search server per query. Default 24.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>60</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </results_limit>
+                        <overlay_min_width translate="label comment">
+                            <label>Overlay minimum width (px)</label>
+                            <comment>Minimum width of the results overlay on mobile. Default 360.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>70</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </overlay_min_width>
+                        <overlay_max_width translate="label comment">
+                            <label>Overlay maximum width (px)</label>
+                            <comment>Maximum width of the overlay on desktop. Default 900.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>80</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </overlay_max_width>
+
+                        <!-- The merchant configures here which input(s) on
+                             their store open the overlay. Default = a
+                             multi-selector that covers 95% of Magento 1.x
+                             themes. If your theme uses a custom search box,
+                             enter the exact selector. -->
+                        <trigger_selector translate="label comment">
+                            <label>Search input CSS selector</label>
+                            <comment><![CDATA[CSS selector the Mibizum SDK attaches the overlay to (click opens it).<br/>
+<strong>Default when empty:</strong> <code>#search, input[name=q][type=search]</code> (covers the native Magento 1.x SearchBox).<br/>
+If your theme uses a custom search box, enter the exact selector here, for example <code>#my-search</code> or <code>.header .search-form input</code>. Accepts multiple comma-separated selectors.]]></comment>
+                            <frontend_type>text</frontend_type>
+                            <sort_order>90</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </trigger_selector>
+                    </fields>
+                </frontend>
+
+                <!-- ============================================================
+                     TESTING: IP whitelist for pre-launch validation. Syncs UP
+                     to search_settings.testing_mode + testing_allowed_ips in
+                     the Mibizum SaaS via the Observer on save.
+                     ============================================================ -->
+                <testing translate="label comment">
+                    <label>Testing mode (IP whitelist)</label>
+                    <comment>While the module is being validated, restricts searches to authorized IPs and isolates the frontend JS so it does not clash with the old search box.</comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>25</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <show_in_website>0</show_in_website>
+                    <show_in_store>0</show_in_store>
+                    <fields>
+                        <mode translate="label comment">
+                            <label>Enable testing mode</label>
+                            <comment>Yes = the `/api/v1/search` endpoint returns 403 if the client IP is not on the whitelist. Syncs with search_settings.testing_mode in the Mibizum panel.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </mode>
+                        <ip_whitelist translate="label comment">
+                            <label>Authorized IPs (whitelist)</label>
+                            <comment>One IP per line, or comma/space separated. Accepts IPv4 and IPv6. Considers HTTP_CF_CONNECTING_IP and X-Forwarded-For automatically. Syncs with search_settings.testing_allowed_ips.</comment>
+                            <frontend_type>textarea</frontend_type>
+                            <sort_order>20</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </ip_whitelist>
+                        <input_selector translate="label comment">
+                            <label>Search input CSS selector</label>
+                            <comment>Selector the Mibizum SDK attaches to. Default "#mibizum-search-input" (does NOT exist in the current store, so the JS will not interfere with the old search box). Change it to "#search" only when you are actually ready to replace the legacy search box.</comment>
+                            <frontend_type>text</frontend_type>
+                            <sort_order>30</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </input_selector>
+                    </fields>
+                </testing>
+
+                <!-- ============================================================
+                     CONNECTION: the minimum settings the module needs to talk
+                     to the Mibizum backend. Without these it does NOT sync
+                     anything.
+                     ============================================================ -->
+                <connection translate="label comment">
+                    <label>Connection</label>
+                    <comment><![CDATA[Settings to connect this Magento to your Mibizum account. The <strong>API key</strong> identifies your store (tenant); the module POSTs products to <code>/api/v1/index</code> with that key.]]></comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>10</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <show_in_website>1</show_in_website>
+                    <show_in_store>1</show_in_store>
+                    <fields>
+
+                        <enabled translate="label comment">
+                            <label>Enabled</label>
+                            <comment>When off, observers do NOT enqueue changes and the cron does NOT drain. Useful to pause without uninstalling. Note: after installing, leave it off until you have configured the API key and run Test connection.</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </enabled>
+
+                        <api_url translate="label comment">
+                            <label>API URL</label>
+                            <comment>Base URL of the Mibizum backend. Default: https://app.mibizum.io</comment>
+                            <frontend_type>text</frontend_type>
+                            <sort_order>20</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </api_url>
+
+                        <api_key translate="label comment">
+                            <label>API key (indexer)</label>
+                            <comment><![CDATA[Your tenant API key with <strong>indexer</strong> scope (the module uses it to PUBLISH products to the catalog). You can find it in the Mibizum panel: <em>Catalogs -> your catalog -> API keys</em>. Stored encrypted in the DB.]]></comment>
+                            <frontend_type>obscure</frontend_type>
+                            <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
+                            <sort_order>30</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </api_key>
+
+                        <!-- A second key with scope=search for the server-side
+                             Enter adapter (`/catalogsearch/result/`). Mibizum
+                             separates scopes: indexer (PUBLISHES docs) vs search
+                             (READS docs). The public JS widget also uses
+                             scope=search, but from the browser with a
+                             CORS-validated origin. -->
+                        <search_api_key translate="label comment">
+                            <label>API key (search)</label>
+                            <comment><![CDATA[API key with <strong>search</strong> scope (used by the Enter override so `/catalogsearch/result/` queries the Mibizum engine). It is the SAME key you would put in the public JS widget. Stored encrypted in the DB.]]></comment>
+                            <frontend_type>obscure</frontend_type>
+                            <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
+                            <sort_order>35</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </search_api_key>
+
+                        <data_source_slug translate="label comment">
+                            <label>Data source slug</label>
+                            <comment>Slug of the data source in the tenant (for example "products"). Empty = the tenant's first data source. Only needed if you have multiple catalogs.</comment>
+                            <frontend_type>text</frontend_type>
+                            <sort_order>40</sort_order>
+                            <show_in_default>1</show_in_default>
+                            <show_in_website>1</show_in_website>
+                            <show_in_store>1</show_in_store>
+                        </data_source_slug>
+
+                        <debug_mode translate="label comment">
+                            <label>Debug mode</label>
+                            <comment>Shows extra technical information in the admin (queue stats, JSON of the last doc). For diagnostics only (leave it off during normal use).</comment>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>50</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </debug_mode>
+
+                    </fields>
+                </connection>
+
+                <!-- ============================================================
+                     SYNC: operational knobs for the Cron drain and the HTTP
+                     client. Sensible defaults; rarely need changing.
+                     ============================================================ -->
+                <sync translate="label comment">
+                    <label>Sync (advanced)</label>
+                    <comment>Operational knobs for the Cron drain and the HTTP client to the Mibizum backend. Sensible defaults; rarely need changing.</comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>20</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <show_in_website>1</show_in_website>
+                    <show_in_store>1</show_in_store>
+                    <fields>
+
+                        <batch_size translate="label comment">
+                            <label>Batch size</label>
+                            <comment>Products per POST /api/v1/index. Max 500. Default 100. Raise it only if you have very large catalogs and the cron does not finish draining in one run.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </batch_size>
+
+                        <max_attempts translate="label comment">
+                            <label>Maximum retries</label>
+                            <comment>After N failed retries, the row is parked (dead-letter) and requires manual intervention. Default 10.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>20</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </max_attempts>
+
+                        <timeout_seconds translate="label comment">
+                            <label>HTTP timeout (s)</label>
+                            <comment>Seconds to wait for a response from the Mibizum backend per request. Default 15.</comment>
+                            <frontend_type>text</frontend_type>
+                            <validate>validate-digits</validate>
+                            <sort_order>30</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </timeout_seconds>
+
+                    </fields>
+                </sync>
+
+                <!-- ============================================================
+                     REINDEX: inline section with buttons (Reindex now, Drain,
+                     Test connection). Rendered by the Inline/Reindex block.
+                     ============================================================ -->
+                <reindex translate="label">
+                    <label>Reindex</label>
+                    <frontend_model>mibizum_sync/adminhtml_inline_reindex</frontend_model>
+                    <sort_order>30</sort_order>
+                    <show_in_default>1</show_in_default>
+                </reindex>
+
+            </groups>
+        </mibizum_sync>
+
+        <!-- ================================================================
+             INDEXABLE ATTRIBUTES: a grid of the Magento attributes the
+             merchant marks as searchable/filterable/sortable. Once backend
+             Phase A is in place, this array will be published to the backend
+             via POST /api/v1/schema/declare-attributes so it can adjust the
+             index settings. For now it is only persisted locally and the
+             ProductMapper reads it when building documents.
+             ================================================================ -->
+        <mibizum_sync_attributes translate="label" module="mibizum_sync">
+            <label>Indexable attributes</label>
+            <tab>mibizum_sync</tab>
+            <frontend_type>text</frontend_type>
+            <sort_order>20</sort_order>
+            <show_in_default>1</show_in_default>
+            <show_in_website>0</show_in_website>
+            <show_in_store>0</show_in_store>
+            <groups>
+                <inline translate="label">
+                    <label>Indexable attributes</label>
+                    <frontend_model>mibizum_sync/adminhtml_inline_attributes</frontend_model>
+                    <sort_order>10</sort_order>
+                    <show_in_default>1</show_in_default>
+                </inline>
+            </groups>
+        </mibizum_sync_attributes>
+
+        <!-- ================================================================
+             BADGES: three types (Category / Attributes / System) with a master
+             toggle per type plus editable grids. The ProductMapper computes
+             them and publishes them on each document; the Mibizum SDK renders
+             them.
+             ================================================================ -->
+        <mibizum_sync_badges translate="label" module="mibizum_sync">
+            <label>Badges</label>
+            <tab>mibizum_sync</tab>
+            <frontend_type>text</frontend_type>
+            <sort_order>25</sort_order>
+            <show_in_default>1</show_in_default>
+            <show_in_website>0</show_in_website>
+            <show_in_store>0</show_in_store>
+            <groups>
+
+                <types translate="label comment">
+                    <label>General</label>
+                    <comment>Enable or disable each badge type as a whole. If a type is disabled here, none of its badges are published to the backend, even if they are enabled individually.</comment>
+                    <frontend_type>text</frontend_type>
+                    <sort_order>10</sort_order>
+                    <show_in_default>1</show_in_default>
+                    <fields>
+                        <show_natures translate="label">
+                            <label>Show Category badges</label>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>10</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </show_natures>
+                        <show_attributes translate="label">
+                            <label>Show Attribute badges</label>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>20</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </show_attributes>
+                        <show_system translate="label">
+                            <label>Show System badges</label>
+                            <frontend_type>select</frontend_type>
+                            <source_model>adminhtml/system_config_source_yesno</source_model>
+                            <sort_order>30</sort_order>
+                            <show_in_default>1</show_in_default>
+                        </show_system>
+                    </fields>
+                </types>
+
+                <natures translate="label">
+                    <label>Category badges</label>
+                    <frontend_model>mibizum_sync/adminhtml_inline_natures</frontend_model>
+                    <sort_order>20</sort_order>
+                    <show_in_default>1</show_in_default>
+                </natures>
+
+                <attribute_badges translate="label">
+                    <label>Attribute badges</label>
+                    <frontend_model>mibizum_sync/adminhtml_inline_attributebadges</frontend_model>
+                    <sort_order>30</sort_order>
+                    <show_in_default>1</show_in_default>
+                </attribute_badges>
+
+                <system_badges translate="label">
+                    <label>System badges</label>
+                    <frontend_model>mibizum_sync/adminhtml_inline_systembadges</frontend_model>
+                    <sort_order>40</sort_order>
+                    <show_in_default>1</show_in_default>
+                </system_badges>
+
+            </groups>
+        </mibizum_sync_badges>
+    </sections>
+</config>

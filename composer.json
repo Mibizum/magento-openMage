@@ -1,0 +1,34 @@
+{
+    "name": "mibizum/sync-magento1",
+    "type": "magento-module",
+    "license": "MIT",
+    "description": "Mibizum_Sync (connects a Magento 1.x / OpenMage store with Mibizum): indexes the catalog, overrides the Enter key toward the Mibizum engine and injects the search widget.",
+    "homepage": "https://mibizum.io",
+    "authors": [
+        {
+            "name": "Mibizum",
+            "homepage": "https://mibizum.io"
+        }
+    ],
+    "require": {
+        "php": ">=5.4.0",
+        "magento-hackathon/magento-composer-installer": "*"
+    },
+    "extra": {
+        "map": [
+            ["src/app/etc/modules/Mibizum_Sync.xml", "app/etc/modules/Mibizum_Sync.xml"],
+            ["src/app/code/community/Mibizum/Sync", "app/code/community/Mibizum/Sync"],
+            ["src/app/design/frontend/base/default/layout/mibizum_sync.xml", "app/design/frontend/base/default/layout/mibizum_sync.xml"],
+            ["src/app/design/frontend/base/default/template/mibizum_sync", "app/design/frontend/base/default/template/mibizum_sync"],
+            ["src/app/design/adminhtml/default/default/layout/mibizum_sync.xml", "app/design/adminhtml/default/default/layout/mibizum_sync.xml"],
+            ["src/app/design/adminhtml/default/default/template/mibizum_sync", "app/design/adminhtml/default/default/template/mibizum_sync"],
+            ["src/app/locale/es_ES/Mibizum_Sync.csv", "app/locale/es_ES/Mibizum_Sync.csv"],
+            ["src/app/locale/de_DE/Mibizum_Sync.csv", "app/locale/de_DE/Mibizum_Sync.csv"],
+            ["src/app/locale/fr_FR/Mibizum_Sync.csv", "app/locale/fr_FR/Mibizum_Sync.csv"],
+            ["src/app/locale/it_IT/Mibizum_Sync.csv", "app/locale/it_IT/Mibizum_Sync.csv"],
+            ["src/app/locale/pt_PT/Mibizum_Sync.csv", "app/locale/pt_PT/Mibizum_Sync.csv"],
+            ["src/app/locale/pt_BR/Mibizum_Sync.csv", "app/locale/pt_BR/Mibizum_Sync.csv"],
+            ["src/skin/adminhtml/default/default/mibizum_sync", "skin/adminhtml/default/default/mibizum_sync"]
+        ]
+    }
+}

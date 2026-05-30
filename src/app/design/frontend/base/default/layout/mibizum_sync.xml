@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!--
+  Mibizum_Sync (frontend layout).
+  Injects the async SDK V1 script into the <head> of every page
+  (the 'default' handle applies to the entire frontend).
+-->
+<layout version="0.1.0">
+    <default>
+        <reference name="head">
+            <block type="mibizum_sync/frontend_config"
+                   name="mibizum.sync.frontend.config"
+                   as="mibizum_sync_config"
+                   template="mibizum_sync/frontend/config.phtml" />
+        </reference>
+    </default>
+</layout>

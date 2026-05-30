@@ -1,0 +1,250 @@
+<?php
+/**
+ * "Reindex" fieldset - index status + actions.
+ *
+ * Embedded in System (Configuration (Mibizum Sync (General configuration.
+ * Shows the status visually; the raw status only in debug mode.
+ *
+ * @var Mibizum_Sync_Block_Adminhtml_Reindex $this
+ */
+$last  = $this->getLastReindex();
+$queue = $this->getQueueStats();
+$docs  = $this->getIndexDocCount();
+$debug = $this->isDebugMode();
+
+$qPending = isset($queue['pending']) ? (int) $queue['pending'] : 0;
+$qLocked  = isset($queue['locked'])  ? (int) $queue['locked']  : 0;
+
+$statusMap = array(
+    'success' => array('successful',   '#3c763d', '#dff0d8'),
+    'partial' => array('with errors',  '#8a6d3b', '#fcf8e3'),
+    'failed'  => array('failed',       '#a94442', '#f2dede'),
+);
+$st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
+?>
+<div class="mibizum-reindex" style="margin: 6px 0 4px;">
+
+    <div id="mibizum_reindex_msg" style="display:none; margin-bottom:12px; padding:10px 14px; border-radius:4px; font-weight:600;"></div>
+
+    <table cellspacing="0" class="mibizum-reindex-status" style="width:100%; max-width:620px; border-collapse:collapse;">
+        <tbody>
+            <tr>
+                <td style="padding:9px 12px; border-bottom:1px solid #e5e5e5; color:#555;"><?php echo $this->__('Last full reindex'); ?></td>
+                <td style="padding:9px 12px; border-bottom:1px solid #e5e5e5; text-align:right; font-weight:600;">
+                    <?php if ($last['at']): ?>
+                        <?php echo $this->escapeHtml($last['at_label']); ?>
+                        <?php if ($st): ?>
+                            <span style="margin-left:8px; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; color:<?php echo $st[1]; ?>; background:<?php echo $st[2]; ?>;"><?php echo $this->__($st[0]); ?></span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <span style="color:#999;"><?php echo $this->__('Never'); ?></span>
+                    <?php endif; ?>
+                    <button type="button" class="scalable mibizum-reindex-btn" style="margin-left:14px; font-weight:normal;"
+                            data-mibizum-url="<?php echo $this->getFullReindexUrl(); ?>"
+                            data-mibizum-reload="1"
+                            data-mibizum-confirm="<?php echo Mage::helper('core')->quoteEscape($this->__('Reindexing rebuilds the entire search index from scratch. It is only needed in exceptional cases (if you suspect something is off): the system keeps the index up to date automatically. It may take several minutes. Continue?')); ?>"
+                            title="<?php echo Mage::helper('core')->quoteEscape($this->__('Rebuilds the entire index from scratch. Takes several minutes.')); ?>">
+                        <span><?php echo $this->__('Reindex'); ?></span>
+                    </button>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding:9px 12px; border-bottom:1px solid #e5e5e5; color:#555;"><?php echo $this->__('Products in the index'); ?></td>
+                <td style="padding:9px 12px; border-bottom:1px solid #e5e5e5; text-align:right; font-weight:600;">
+                    <span id="mibizum_reindex_docs"><?php echo ($docs !== null) ? number_format($docs, 0, '.', ',') : '-'; ?></span>
+                    <?php if ($docs === null): ?>
+                        <span style="color:#999; font-weight:normal; font-size:11px; margin-left:6px;"><?php echo $this->__('(service unavailable)'); ?></span>
+                    <?php endif; ?>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding:9px 12px; color:#555;"><?php echo $this->__('Changes pending indexing'); ?></td>
+                <td style="padding:9px 12px; text-align:right; font-weight:600;">
+                    <span id="mibizum_reindex_pending"><?php echo (int) $qPending; ?></span>
+                    <span id="mibizum_reindex_pending_zero" style="color:#3c763d; font-weight:normal; font-size:11px; margin-left:6px; <?php echo $qPending > 0 ? 'display:none;' : ''; ?>"><?php echo $this->__('(all up to date)'); ?></span>
+                    <span id="mibizum_reindex_locked" style="color:#999; font-weight:normal; font-size:11px; margin-left:6px; <?php echo $qLocked > 0 ? '' : 'display:none;'; ?>"><?php echo $this->__('· %s in progress', '<b class="v">' . (int) $qLocked . '</b>'); ?></span>
+                    <button type="button" id="mibizum_reindex_refresh" class="scalable" style="margin-left:14px; font-weight:normal;">
+                        <span><?php echo $this->__('Refresh status'); ?></span>
+                    </button>
+                    <button type="button" class="scalable mibizum-reindex-btn" style="margin-left:6px; font-weight:normal;"
+                            data-mibizum-url="<?php echo $this->getDrainQueueUrl(); ?>"
+                            data-mibizum-reload="0"
+                            data-mibizum-confirm="<?php echo Mage::helper('core')->quoteEscape($this->__('{pending} product(s) with pending changes will be processed and updated in the search index. Proceed?')); ?>"
+                            title="<?php echo Mage::helper('core')->quoteEscape($this->__('Processes only the queued changes. Fast. The system already does this on its own every night.')); ?>">
+                        <span><?php echo $this->__('Process pending'); ?></span>
+                    </button>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <?php if ($this->isMultiStore()): ?>
+    <?php $conns = $this->getStoreViewConnections(); ?>
+    <div class="mibizum-reindex-catalogs" style="margin-top:22px; max-width:620px;">
+        <h5 style="margin:0 0 8px; color:#555;">
+            <?php echo $this->__('Connected catalogs'); ?>
+            <span style="margin-left:6px; padding:2px 8px; border-radius:10px; font-size:11px; background:#eef; color:#33c;"><?php echo (int) $this->getConnectedCatalogCount(); ?></span>
+        </h5>
+        <?php if ($this->hasMisconfiguredStoreView()): ?>
+        <div style="margin:0 0 10px; padding:9px 12px; border-radius:4px; color:#8a6d3b; background:#fcf8e3; border:1px solid #faebcc; font-size:12px;">
+            <?php echo $this->__('Some store-views are enabled but missing their API key or URL, so they are NOT indexed. Set their Connection fields at the store-view scope.'); ?>
+        </div>
+        <?php endif; ?>
+        <table cellspacing="0" style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+                <tr style="text-align:left; color:#888;">
+                    <th style="padding:6px 10px; border-bottom:2px solid #e5e5e5;"><?php echo $this->__('Website'); ?></th>
+                    <th style="padding:6px 10px; border-bottom:2px solid #e5e5e5;"><?php echo $this->__('Store view'); ?></th>
+                    <th style="padding:6px 10px; border-bottom:2px solid #e5e5e5;"><?php echo $this->__('Catalog (data source)'); ?></th>
+                    <th style="padding:6px 10px; border-bottom:2px solid #e5e5e5; text-align:right;"><?php echo $this->__('Status'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($conns as $c): ?>
+                <?php
+                    if ($c['status'] === 'connected') { $col = '#3c763d'; $bg = '#dff0d8'; }
+                    elseif ($c['status'] === 'misconfigured') { $col = '#8a6d3b'; $bg = '#fcf8e3'; }
+                    else { $col = '#999'; $bg = '#f4f4f4'; }
+                ?>
+                <tr>
+                    <td style="padding:6px 10px; border-bottom:1px solid #eee;"><?php echo $this->escapeHtml($c['website']); ?></td>
+                    <td style="padding:6px 10px; border-bottom:1px solid #eee;"><?php echo $this->escapeHtml($c['store_view']); ?></td>
+                    <td style="padding:6px 10px; border-bottom:1px solid #eee; font-family:monospace;"><?php echo $c['slug'] !== '' ? $this->escapeHtml($c['slug']) : '<span style="color:#bbb;">&mdash;</span>'; ?></td>
+                    <td style="padding:6px 10px; border-bottom:1px solid #eee; text-align:right;">
+                        <span style="padding:2px 8px; border-radius:10px; font-weight:600; color:<?php echo $col; ?>; background:<?php echo $bg; ?>;"><?php echo $this->escapeHtml($this->getStatusLabel($c['status'])); ?></span>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($debug): ?>
+    <div style="margin-top:20px;">
+        <h5 style="margin:0 0 6px; color:#888;"><?php echo $this->__('Raw status (debug mode)'); ?></h5>
+        <div id="mibizum_reindex_raw" style="background:#f4f4f4; padding:10px; font-family:monospace; white-space:pre; border:1px solid #ddd; font-size:11px; max-height:260px; overflow:auto;"><?php echo $this->__('Press "Refresh status".'); ?></div>
+    </div>
+    <?php endif; ?>
+
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+(function () {
+    var STATS_URL = <?php echo json_encode($this->getStatsUrl()); ?>;
+    var FORM_KEY  = <?php echo json_encode(Mage::getSingleton('core/session')->getFormKey()); ?>;
+    var DEBUG     = <?php echo $debug ? 'true' : 'false'; ?>;
+
+    function $id(id) { return document.getElementById(id); }
+
+    function showMsg(text, ok) {
+        var el = $id('mibizum_reindex_msg');
+        if (!el) { return; }
+        el.style.background = ok ? '#dff0d8' : '#f2dede';
+        el.style.color      = ok ? '#3c763d' : '#a94442';
+        el.style.border     = '1px solid ' + (ok ? '#d6e9c6' : '#ebccd1');
+        el.textContent      = text;
+        el.style.display    = 'block';
+        if (el._t) { clearTimeout(el._t); }
+        el._t = setTimeout(function () { el.style.display = 'none'; }, 9000);
+    }
+
+    function applyStats(data) {
+        if (!data) { return; }
+        if (data.index && typeof data.index.numberOfDocuments !== 'undefined') {
+            var d = $id('mibizum_reindex_docs');
+            if (d) { d.textContent = Number(data.index.numberOfDocuments).toLocaleString('en-US'); }
+        }
+        if (data.queue) {
+            var pending = Number(data.queue.pending || 0);
+            var locked  = Number(data.queue.locked || 0);
+            var pEl = $id('mibizum_reindex_pending');
+            if (pEl) { pEl.textContent = pending; }
+            var zEl = $id('mibizum_reindex_pending_zero');
+            if (zEl) { zEl.style.display = pending > 0 ? 'none' : ''; }
+            var lEl = $id('mibizum_reindex_locked');
+            if (lEl) {
+                lEl.style.display = locked > 0 ? '' : 'none';
+                var b = lEl.querySelector('b.v');
+                if (b) { b.textContent = locked; }
+            }
+        }
+        if (DEBUG) {
+            var raw = $id('mibizum_reindex_raw');
+            if (raw) {
+                raw.innerHTML = JSON.stringify(data, null, 2)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            }
+        }
+    }
+
+    function refreshStats(cb) {
+        new Ajax.Request(STATS_URL, {
+            method: 'get',
+            onSuccess: function (resp) {
+                var data = null;
+                try { data = resp.responseJSON || JSON.parse(resp.responseText); } catch (e) {}
+                applyStats(data);
+                if (cb) { cb(); }
+            },
+            onFailure: function () { showMsg('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Could not read the index status.')); ?>', false); if (cb) { cb(); } }
+        });
+    }
+
+    function runAction(btn) {
+        var url     = btn.getAttribute('data-mibizum-url');
+        var reload  = btn.getAttribute('data-mibizum-reload') === '1';
+        var confirm = btn.getAttribute('data-mibizum-confirm');
+        if (!url) { return; }
+        if (confirm) {
+            // {pending} is replaced with the current on-screen counter
+            // (reflects the last "Refresh status", not the rendered value).
+            var pEl = $id('mibizum_reindex_pending');
+            var pending = pEl ? (pEl.textContent || '0').replace(/[^0-9]/g, '') : '0';
+            confirm = confirm.replace('{pending}', pending || '0');
+            if (!window.confirm(confirm)) { return; }
+        }
+
+        var span  = btn.getElementsByTagName('span')[0];
+        var label = span ? span.textContent : '';
+        if (span) { span.textContent = '⏳ ' + label; }
+        btn.disabled = true;
+
+        new Ajax.Request(url, {
+            method: 'post',
+            parameters: { form_key: FORM_KEY },
+            requestHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
+            onSuccess: function (resp) {
+                var data = null;
+                try { data = resp.responseJSON || JSON.parse(resp.responseText); } catch (e) {}
+                var ok = data && data.success;
+                showMsg(data && data.message ? data.message : (ok ? '<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Done.')); ?>' : '<?php echo Mage::helper('core')->jsQuoteEscape($this->__('Error.')); ?>'), !!ok);
+                if (ok && reload) {
+                    setTimeout(function () { window.location.reload(); }, 1200);
+                } else {
+                    refreshStats();
+                }
+            },
+            onFailure: function (resp) {
+                showMsg('<?php echo Mage::helper('core')->jsQuoteEscape($this->__('HTTP error')); ?> ' + (resp ? resp.status : '?') + '.', false);
+            },
+            onComplete: function () {
+                if (span) { span.textContent = label; }
+                btn.disabled = false;
+            }
+        });
+    }
+
+    document.observe('dom:loaded', function () {
+        var btns = document.querySelectorAll('.mibizum-reindex-btn');
+        for (var i = 0; i < btns.length; i++) {
+            (function (b) { b.addEventListener('click', function () { runAction(b); }); })(btns[i]);
+        }
+        var r = $id('mibizum_reindex_refresh');
+        if (r) { r.addEventListener('click', function () { refreshStats(); }); }
+        if (DEBUG) { refreshStats(); }
+    });
+})();
+//]]>
+</script>

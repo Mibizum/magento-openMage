@@ -1,0 +1,229 @@
+<?php
+/**
+ * Mibizum_Sync_Model_Adapter_Mibizum
+ *
+ * HTTP client against the Mibizum SaaS backend. It replaces an earlier
+ * search adapter that talked directly to the engine with scoped engine keys; in
+ * this module there is NO direct engine access - everything goes through
+ * `/api/v1/index` with a Bearer API key.
+ *
+ * Keeps the SAME public signature as the original search adapter so Worker and
+ * the scheduler need no structural changes:
+ *
+ *   indexDocuments($indexNameIgnored, array $docs)        - POST /api/v1/index
+ *   deleteDocumentsByIds($indexNameIgnored, array $ids)   - DELETE individual
+ *   createIndex($name, $primaryKey)                       - no-op (backend creates it)
+ *   updateSettings($name, array $settings)                - no-op (backend applies it)
+ *
+ * The $indexName parameter is ignored - the Mibizum backend resolves the search
+ * index from the tenant's API key + dataSource slug. We keep it in the signature
+ * for compatibility with the legacy code.
+ *
+ * Compatible with PHP 5.4 through 8.x.
+ */
+class Mibizum_Sync_Model_Adapter_Mibizum
+{
+    /** Backend cap per POST. If docs exceed it, we split into chunks. */
+    const MAX_BATCH_SIZE = 500;
+
+    /**
+     * Publish N documents to the tenant's index. Idempotent - upsert by the
+     * backend primary key (`id`). If the array exceeds MAX_BATCH_SIZE, the
+     * caller must split it (Worker already does, via $_pushChunk).
+     *
+     * @param string $indexNameIgnored  Signature compat; ignored.
+     * @param array  $documents         Array of JSON-serializable documents, each with an `id`.
+     * @return array {accepted, taskUid}
+     * @throws Exception on HTTP != 2xx, network failure, or invalid payload.
+     */
+    public function indexDocuments($indexNameIgnored, array $documents)
+    {
+        if (empty($documents)) {
+            return array('accepted' => 0, 'taskUid' => null);
+        }
+        if (count($documents) > self::MAX_BATCH_SIZE) {
+            throw new Exception(sprintf(
+                'indexDocuments: batch too large (%d > %d). The caller must split it.',
+                count($documents), self::MAX_BATCH_SIZE
+            ));
+        }
+
+        $helper  = Mage::helper('mibizum_sync');
+        $url     = $helper->getApiUrl() . '/api/v1/index';
+        $payload = array('documents' => $documents);
+        $slug    = $helper->getDataSourceSlug();
+        if ($slug) {
+            $payload['source'] = $slug;
+        }
+
+        list($code, $body) = $this->_request('POST', $url, json_encode($payload));
+
+        if ($code === 202 || $code === 200) {
+            $json = json_decode((string) $body, true);
+            return array(
+                'accepted' => isset($json['accepted']) ? (int) $json['accepted'] : count($documents),
+                'taskUid'  => isset($json['taskUid'])  ? $json['taskUid']        : null,
+            );
+        }
+
+        throw new Exception(sprintf(
+            'indexDocuments: backend responded HTTP %d - %s',
+            $code, substr((string) $body, 0, 300)
+        ));
+    }
+
+    /**
+     * Delete N documents by id. The backend has no batch DELETE in v1, so we
+     * iterate. Idempotent - DELETE of a missing id does not fail.
+     *
+     * For Magento 1.x the `ids` are SKUs (Mibizum id = SKU; see ProductMapper).
+     * If an id is a numeric entity_id (legacy/compat), the backend accepts it as
+     * a string anyway.
+     *
+     * @param string $indexNameIgnored  Signature compat; ignored.
+     * @param array  $ids               Array of ids (SKUs).
+     * @return int Number of successful DELETEs.
+     * @throws Exception if ALL fail. If only some fail, logs a warning and continues.
+     */
+    public function deleteDocumentsByIds($indexNameIgnored, array $ids)
+    {
+        if (empty($ids)) return 0;
+
+        $helper = Mage::helper('mibizum_sync');
+        $slug   = $helper->getDataSourceSlug();
+
+        $okCount   = 0;
+        $errors    = array();
+        foreach ($ids as $id) {
+            $idStr = (string) $id;
+            if ($idStr === '') continue;
+
+            $url = $helper->getApiUrl() . '/api/v1/index/' . rawurlencode($idStr);
+            if ($slug) {
+                $url .= '?source=' . rawurlencode($slug);
+            }
+
+            try {
+                list($code, $body) = $this->_request('DELETE', $url, null);
+                if ($code === 200 || $code === 202) {
+                    $okCount++;
+                } else {
+                    $errors[] = "id=$idStr: HTTP $code - " . substr((string) $body, 0, 100);
+                }
+            } catch (Exception $e) {
+                $errors[] = "id=$idStr: " . $e->getMessage();
+            }
+        }
+
+        if ($okCount === 0 && !empty($errors)) {
+            // All failed - total fallback; propagate so the queue marks them as
+            // failed and retries with backoff.
+            throw new Exception('deleteDocumentsByIds: ALL failed - ' . implode(' | ', array_slice($errors, 0, 5)));
+        }
+        if (!empty($errors)) {
+            $helper->log(
+                sprintf('deleteDocumentsByIds: %d OK, %d failed', $okCount, count($errors)),
+                Zend_Log::WARN,
+                array('errors' => array_slice($errors, 0, 10))
+            );
+        }
+        return $okCount;
+    }
+
+    /**
+     * No-op - the Mibizum backend creates the search index automatically on the
+     * first POST /api/v1/index (lazy ensure). Kept for compatibility with an
+     * earlier flow that called this method; the scheduler no longer does.
+     */
+    public function createIndex($name, $primaryKey = 'id')
+    {
+        // No-op
+        return true;
+    }
+
+    /**
+     * No-op - the backend applies the index settings (searchable, filterable,
+     * sortable, rankingRules, typoTolerance, stopWords) based on its internal
+     * schema + per-tenant override. The module has no say here.
+     *
+     * If a future version lets the merchant publish custom searchable/filterable
+     * attributes, the module would POST to a new backend endpoint such as
+     * `POST /api/v1/schema/declare-attributes`. Not applicable for now.
+     */
+    public function updateSettings($name, array $settings)
+    {
+        // No-op
+        return true;
+    }
+
+    /**
+     * Remote search index stats (numberOfDocuments, fieldDistribution, etc.).
+     *
+     * Inherited from a flow that called GET /indexes/{name}/stats directly. The
+     * SaaS does not yet expose a proxy for engine stats, so we return null and
+     * the caller (Block/Adminhtml/Reindex.php) shows "-" instead of a PHP fatal
+     * from an undefined method.
+     *
+     * Future: add GET /api/v1/stats?source=X returning the tenant index stats.
+     * Until then, a null stub.
+     *
+     * @param string $indexName Ignored for now
+     * @return array|null
+     */
+    public function getStats($indexName = null)
+    {
+        return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Internals
+    // -------------------------------------------------------------------------
+
+    /**
+     * Make an HTTP request. Returns [code, body]. Throws an Exception on a
+     * NETWORK error (not on a status code; the caller decides what to do with
+     * each code). Uses native cURL for fine-grained timeout control.
+     */
+    protected function _request($method, $url, $body)
+    {
+        $helper  = Mage::helper('mibizum_sync');
+        $apiKey  = $helper->getApiKey();
+        $timeout = $helper->getTimeoutSeconds();
+
+        if ($apiKey === '') {
+            throw new Exception('Mibizum_Sync: API key not configured');
+        }
+
+        $ch = curl_init();
+        $headers = array(
+            'Authorization: Bearer ' . $apiKey,
+            'Accept: application/json',
+            'User-Agent: Mibizum-Sync-Adapter/0.2.0 (Magento 1.x)',
+        );
+        if ($body !== null) {
+            $headers[] = 'Content-Type: application/json';
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL            => $url,
+            CURLOPT_CUSTOMREQUEST  => $method,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => $timeout,
+            CURLOPT_CONNECTTIMEOUT => max(2, intval($timeout / 3)),
+            CURLOPT_HTTPHEADER     => $headers,
+        ));
+        if ($body !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        }
+
+        $resp     = curl_exec($ch);
+        $code     = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $netError = curl_error($ch);
+        curl_close($ch);
+
+        if ($code === 0) {
+            throw new Exception('Network error: ' . ($netError ?: 'unknown'));
+        }
+        return array($code, (string) $resp);
+    }
+}
