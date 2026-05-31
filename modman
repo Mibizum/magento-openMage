@@ -1,7 +1,7 @@
 # modman manifest (Mibizum_Sync (Magento 1.x / OpenMage module))
 #
 # Maps the module files (left column, relative to THIS directory
-# packages/adapter-magento/) to their destination at the Magento root (right
+# the module files) to their destination at the Magento root (right
 # column). modman creates SYMLINKS, so editing the repo code is reflected in the
 # store without redeploying (ideal for development).
 #
@@ -9,7 +9,7 @@
 #
 #   cd /path/to/your/magento
 #   modman init                                   # creates .modman/ (once)
-#   modman link /path/to/repo/packages/adapter-magento
+#   modman link /path/to/magento-openMage
 #   rm -rf var/cache/*                            # or Admin > Cache > Flush
 #
 # To update after a git pull of the repo: the symlinks already point to the new

@@ -3,7 +3,7 @@
 # package-mibizum-sync.sh
 #
 # Packages the Magento 1 module **Mibizum_Sync** for distribution through ALL
-# the standard Magento 1.x channels. Generates, in packages/adapter-magento/dist/:
+# the standard Magento 1.x channels. Generates, in dist/:
 #
 #   1. Mibizum_Sync-<ver>.tgz                 -> direct install (extract at the
 #                                               Magento root). app/ + skin/.
@@ -34,7 +34,7 @@
 # Only packages Mibizum_Sync (a generic, standalone module).
 #
 # Usage:
-#   bash packages/adapter-magento/scripts/package-mibizum-sync.sh
+#   bash scripts/package-mibizum-sync.sh
 #
 set -euo pipefail
 
@@ -47,8 +47,7 @@ set -euo pipefail
 export COPYFILE_DISABLE=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"        # packages/adapter-magento
-SRC="$ROOT/src"
+ROOT="$(cd "$HERE/.." && pwd)"        # repo rootSRC="$ROOT/src"
 DIST="$ROOT/dist"
 CONFIG="$SRC/app/code/community/Mibizum/Sync/etc/config.xml"
 
@@ -141,7 +140,7 @@ done
 
 cat <<EOF
 
-Install channels (see docs/sessions/magento-module-mibizum-sync.md):
+Install channels:
 
   - Direct:   tar -xzf $(basename "$FULL") -C /path/to/magento/
               rm -rf /path/to/magento/var/cache/*
@@ -157,5 +156,5 @@ Install channels (see docs/sessions/magento-module-mibizum-sync.md):
       (or ./mage install file://path/$(basename "${CONNECT:-N/A}"))
 
   - Composer:   composer require mibizum/sync-magento1
-  - modman:     modman link /path/to/repo/packages/adapter-magento
+  - modman:     modman link /path/to/magento-openMage
 EOF

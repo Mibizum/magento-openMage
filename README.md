@@ -1,5 +1,4 @@
-# @mibizum/adapter-magento
-
+# Mibizum Sync for Magento 1.x / OpenMage
 Adapter for Magento 1.9 / OpenMage 20.x - the `Mibizum_Sync` module that is
 installed in the merchant's store to connect their catalog with the Mibizum SaaS.
 
@@ -9,7 +8,7 @@ installed in the merchant's store to connect their catalog with the Mibizum SaaS
 Magento 1 channels (direct, two-phase FTP, Magento Connect, Composer, modman).
 Full safe-disable hardening + CSRF hardening (POST + form_key on every
 state-changing admin action). The packaging/install/uninstall guide lives in
-[`docs/sessions/magento-module-mibizum-sync.md`](../../docs/sessions/magento-module-mibizum-sync.md).
+[the docs](https://docs.mibizum.io/magento).
 
 ## What it does
 
@@ -72,18 +71,18 @@ src/app/
 ### 1) Package and pick a channel
 
 ```bash
-bash packages/adapter-magento/scripts/package-mibizum-sync.sh
+bash scripts/package-mibizum-sync.sh
 ```
 
 Generates 4 artifacts in `dist/` (direct, two-phase FTP, Magento Connect). For
 FTP, use the two-phase pattern (upload everything except the activator and, at
 the end, only the activator) (the why and the exact steps for each channel
 (including Composer and modman) are in
-[the session doc](../../docs/sessions/magento-module-mibizum-sync.md)). The
+[the docs](https://docs.mibizum.io/magento)). The
 simplest one if you have shell access:
 
 ```bash
-tar -xzf packages/adapter-magento/dist/Mibizum_Sync-<ver>.tgz -C /path/to/magento/
+tar -xzf dist/Mibizum_Sync-<ver>.tgz -C /path/to/magento/
 ```
 
 ### 2) Flush the cache + permissions
@@ -180,7 +179,7 @@ when the install has more than one store-view: website, store-view, catalog slug
 and status (Connected / Not configured / Disabled), plus a warning if a store-view
 is enabled but missing its key/URL.
 
-See [`docs/magento-multistore-for-merchants.md`](../../docs/magento-multistore-for-merchants.md)
+See [the multi-store guide](https://docs.mibizum.io/magento/multistore)
 for a non-technical explanation to share with merchants.
 
 ## Operation
@@ -258,8 +257,8 @@ Script (recommended): reads `local.xml`, disables, cleans the DB and deletes
 files. Always try it first with `--dry-run`.
 
 ```bash
-bash packages/adapter-magento/scripts/uninstall-mibizum-sync.sh /path/to/magento --dry-run
-bash packages/adapter-magento/scripts/uninstall-mibizum-sync.sh /path/to/magento
+bash scripts/uninstall-mibizum-sync.sh /path/to/magento --dry-run
+bash scripts/uninstall-mibizum-sync.sh /path/to/magento
 # options: --yes  --keep-files  --keep-db  --disable-only
 ```
 
@@ -268,7 +267,7 @@ Manual: (1) remove the activator, (2) run `scripts/uninstall-mibizum-sync.sql`
 module tables + `DELETE` from `core_config_data` (`mibizum_sync%`,
 `mibizum_sync_badges%`) + delete `mibizum_sync_setup` from `core_resource`),
 (3) delete the files, (4) flush `var/cache`). Full detail in
-[the session doc](../../docs/sessions/magento-module-mibizum-sync.md).
+[the docs](https://docs.mibizum.io/magento).
 
 ## Trade-offs and limitations
 
