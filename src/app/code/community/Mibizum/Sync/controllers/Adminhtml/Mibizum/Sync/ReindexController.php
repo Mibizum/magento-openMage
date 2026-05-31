@@ -54,9 +54,33 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
         return true;
     }
 
+    /**
+     * CSRF guard for state-changing actions: require POST + a valid form_key
+     * (the on-screen panel already POSTs both via AJAX). Returns false, after
+     * emitting a JSON error (AJAX) or queuing an error + redirect (navigation),
+     * when the request must be rejected.
+     *
+     * @return bool
+     */
+    protected function _guardWrite()
+    {
+        if ($this->getRequest()->isPost() && $this->_validateFormKey()) {
+            return true;
+        }
+        $msg = $this->__('Your session expired or the security token is invalid. Please retry.');
+        if (!$this->_respondAjaxIfApplicable(false, $msg)) {
+            Mage::getSingleton('adminhtml/session')->addError($msg);
+            $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+        }
+        return false;
+    }
+
     /** Enqueue all products and drain the queue. Blocking (may take a while). */
     public function fullAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $ok  = false;
         $msg = '';
         try {
@@ -77,6 +101,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
     /** Only drains the pending queue (does not enqueue new ones). */
     public function drainAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $ok  = false;
         $msg = '';
         try {
@@ -106,8 +133,12 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
             $stats['queue_error'] = $e->getMessage();
         }
         try {
+            // getStats() ignores any index name (the Mibizum backend resolves the
+            // index from the API key). The previous getSearchIndexName() helper was
+            // removed in the multistore refactor; calling it threw and made the
+            // Reindex panel / install-wizard show "0 in index" even when populated.
             $client = Mage::getModel('mibizum_sync/adapter_mibizum');
-            $stats['index'] = $client->getStats(Mage::helper('mibizum_sync')->getSearchIndexName());
+            $stats['index'] = $client->getStats();
         } catch (Exception $e) {
             $stats['index_error'] = $e->getMessage();
         }

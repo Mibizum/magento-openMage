@@ -1,14 +1,15 @@
-# Mibizum Sync — Magento 1.x / OpenMage module
+# @mibizum/adapter-magento
 
-The `Mibizum_Sync` module is installed in the merchant's Magento 1.9 / OpenMage
-20.x store to connect its catalog with [Mibizum](https://mibizum.io) search.
+Adapter for Magento 1.9 / OpenMage 20.x - the `Mibizum_Sync` module that is
+installed in the merchant's store to connect their catalog with the Mibizum SaaS.
 
 ## Status
 
-`v0.6.3` - **production-ready and distributable** through all the standard
+`v0.6.7` - **production-ready and distributable** through all the standard
 Magento 1 channels (direct, two-phase FTP, Magento Connect, Composer, modman).
-Full safe-disable hardening. Packaging, install, uninstall and configuration
-guides live in the [project wiki](https://github.com/Mibizum/magento-openMage/wiki).
+Full safe-disable hardening + CSRF hardening (POST + form_key on every
+state-changing admin action). The packaging/install/uninstall guide lives in
+[`docs/sessions/magento-module-mibizum-sync.md`](../../docs/sessions/magento-module-mibizum-sync.md).
 
 ## What it does
 
@@ -77,8 +78,8 @@ bash packages/adapter-magento/scripts/package-mibizum-sync.sh
 Generates 4 artifacts in `dist/` (direct, two-phase FTP, Magento Connect). For
 FTP, use the two-phase pattern (upload everything except the activator and, at
 the end, only the activator) (the why and the exact steps for each channel
-(including Composer and modman) are in the
-[Installation wiki](https://github.com/Mibizum/magento-openMage/wiki/Installation)). The
+(including Composer and modman) are in
+[the session doc](../../docs/sessions/magento-module-mibizum-sync.md)). The
 simplest one if you have shell access:
 
 ```bash
@@ -101,7 +102,7 @@ In the Magento admin, **System > Configuration > Advanced > Advanced** →
 If it is, the install script `install-0.1.0.php` runs automatically when the
 cache is flushed and creates the module tables.
 
-### 4) Configure the API key
+### 4) Configure the API keys
 
 In the admin: **System > Configuration > MIBIZUM > Mibizum Sync**:
 
@@ -109,7 +110,8 @@ In the admin: **System > Configuration > MIBIZUM > Mibizum Sync**:
 |---|---|
 | **Enabled** | No (not yet!) |
 | **API URL** | `https://app.mibizum.io` |
-| **API key** | (paste your tenant key - found in the panel: Data sources → your source → API keys; it must have the `indexer` scope) |
+| **Private API key** | (paste your private key, found in the panel: Data sources → your source → API keys. It writes your catalog, so keep it secret and server-side; if it leaks, regenerate it in the panel) |
+| **Public API key** | (the read-only key the browser widget and the Enter override use; safe to expose) |
 | **Data source slug** | (empty if you only have one catalog) |
 
 ### 5) Test connection
@@ -118,7 +120,7 @@ Press the **"Test connection"** button on the same page. It should show:
 
 > Mibizum: connection OK. Tenant: YourStore (your-slug)
 
-If it errors, check the API key and the URL. **Do not enable the module yet**
+If it errors, check the keys and the URL. **Do not enable the module yet**
 if the test fails.
 
 ### 6) Enable + initial Resync
@@ -152,8 +154,8 @@ All Connection and Frontend settings are **per-store-view scoped**. In
 **System > Configuration**, switch the scope selector (top-left) to each
 store-view and set:
 
-- **MIBIZUM > Mibizum Sync > Connection**: Enabled, API URL, **API key (indexer)**,
-  **API key (search)** and **Data source slug** of THAT store-view's catalog.
+- **MIBIZUM > Mibizum Sync > Connection**: Enabled, API URL, **Private API key**,
+  **Public API key** and **Data source slug** of THAT store-view's catalog.
 - **MIBIZUM > Mibizum Sync > Frontend > Widget snippet**: paste the snippet whose
   `search_key` belongs to that store-view's catalog.
 
@@ -169,7 +171,7 @@ catalog, so a single-store merchant just configures the Default scope once.
   enqueues a full reindex so the affected catalog is (re)populated. Unrelated
   setting changes do not.
 - **Frontend search per view**: the Enter override (`/catalogsearch/result/`) and
-  the widget query the current store-view's catalog with its own search key.
+  the widget query the current store-view's catalog with its own public key.
 
 ### Overview
 
@@ -178,7 +180,7 @@ when the install has more than one store-view: website, store-view, catalog slug
 and status (Connected / Not configured / Disabled), plus a warning if a store-view
 is enabled but missing its key/URL.
 
-See the [Multi-store wiki page](https://github.com/Mibizum/magento-openMage/wiki/Multi-store)
+See [`docs/magento-multistore-for-merchants.md`](../../docs/magento-multistore-for-merchants.md)
 for a non-technical explanation to share with merchants.
 
 ## Operation
@@ -265,8 +267,8 @@ Manual: (1) remove the activator, (2) run `scripts/uninstall-mibizum-sync.sql`
 (replace `@PREFIX@` with your `table_prefix`) (`DROP TABLE IF EXISTS` of the
 module tables + `DELETE` from `core_config_data` (`mibizum_sync%`,
 `mibizum_sync_badges%`) + delete `mibizum_sync_setup` from `core_resource`),
-(3) delete the files, (4) flush `var/cache`). Full detail in the
-[Uninstall wiki page](https://github.com/Mibizum/magento-openMage/wiki/Uninstall).
+(3) delete the files, (4) flush `var/cache`). Full detail in
+[the session doc](../../docs/sessions/magento-module-mibizum-sync.md).
 
 ## Trade-offs and limitations
 
@@ -287,9 +289,26 @@ module tables + `DELETE` from `core_config_data` (`mibizum_sync%`,
 
 ## Compatibility
 
-- Magento 1.9.x (mage1)
-- OpenMage LTS 20.x (same module, no changes)
-- Magento 2.4.x - **NOT compatible** (a completely different structure; its own effort)
+One module covers the whole range. The code is written to run on PHP 5.4, so the
+same module runs unchanged on an old Magento 1.9 and on the latest PHP 8.x. Being
+"PHP 5.4-compatible" means it runs across the **whole range**, up to the newest
+PHP your platform supports, not that it is limited to 5.x.
+
+| | Supported |
+|---|---|
+| **Magento (1.x) / OpenMage** | Magento CE 1.9.x and OpenMage LTS 20.x (`community` pool) |
+| **PHP** | 5.4 (legacy Magento CE 1.9) through 8.3 (OpenMage 20 LTS): one module, whole range |
+
+Verified live on Magento CE 1.9.4.5 (PHP 5.6).
+
+(Magento 2.4.x is a separate effort, see [`mibizum/module-search`](https://github.com/Mibizum/magento2-module).)
+
+## Documentation
+
+Full guides and screenshots live at
+[docs.mibizum.io/magento](https://docs.mibizum.io/magento) and in the project
+[wiki](https://github.com/Mibizum/magento-openMage/wiki). Keep screenshots and
+step-by-step walkthroughs there, not in this README.
 
 ## Roadmap
 

@@ -32,8 +32,32 @@
                  SKU-keyed index (was deleting by entity_id, a no-op).
                  0.6.3 = the Enter override gates on the SEARCH key
                  (isSearchEnabled) instead of the indexer key, so search-only
-                 setups work without indexing from Magento (code-only). -->
-            <version>0.6.3</version>
+                 setups work without indexing from Magento (code-only).
+                 0.6.4 = first-run install wizard (native shell + hosted
+                 onboarding iframe + native indexing/widget steps). Inert on
+                 already-configured stores.
+                 0.6.5 = fixes: Reindex stats no longer call the removed
+                 getSearchIndexName() (the panel/wizard "products in index" was
+                 stuck at 0 even when populated); search adapter default limit
+                 now respects the backend max (50, was 60 => HTTP 400); wizard
+                 indexing shows an indeterminate loader + live counts.
+                 0.6.6 = admin cleanup: removed the duplicate (dead) Debug mode
+                 toggle and the stale data_source_slug default from the General
+                 group (both already live under Connection); the search-input
+                 selector help now states the real default (#search).
+                 0.6.7 = security hardening (defense-in-depth): every
+                 state-changing admin action (badge/attribute save, delete, mass
+                 actions; reindex full/drain) now requires POST + a valid
+                 form_key on top of the admin secret URL key, and the per-badge
+                 "Delete" button submits via POST instead of a GET link, so a
+                 destructive action can no longer be triggered by a crafted GET
+                 (CSRF). Code-only; no DB schema change.
+                 0.6.8 = naming: the two API key fields are now labelled
+                 "Private API key" (write/indexing, secret, regenerate if
+                 exposed) and "Public API key" (read/search, goes in the widget,
+                 safe to expose), with help text + i18n updated in all 6 locales.
+                 Config field node names are unchanged. Code-only; no DB change. -->
+            <version>0.6.8</version>
         </Mibizum_Sync>
     </modules>
 
@@ -315,8 +339,6 @@
             <general>
                 <enabled>0</enabled>
                 <feature_flag_param></feature_flag_param>
-                <data_source_slug>products</data_source_slug>
-                <debug_mode>0</debug_mode>
             </general>
             <frontend>
                 <show_category_facets>0</show_category_facets>

@@ -32,7 +32,7 @@ class Mibizum_Sync_Model_Search_Adapter
      *
      * @param array $params {
      *     q:        string (required)
-     *     limit:    int (default 60, max MAX_LIMIT)
+     *     limit:    int (default + max = MAX_LIMIT = 50)
      *     offset:   int (default 0)
      *     source:   string (data source slug; default from Helper)
      *     facets:   bool (default false; the Enter does not need them)
@@ -67,7 +67,10 @@ class Mibizum_Sync_Model_Search_Adapter
         /** @var Mibizum_Sync_Helper_Data $helper */
         $helper = Mage::helper('mibizum_sync');
 
-        $limit  = isset($params['limit'])  ? min((int) $params['limit'], self::MAX_LIMIT) : 60;
+        // Always clamp to MAX_LIMIT (50). The default (no param) must also respect
+        // it: the backend rejects limit > 50 with HTTP 400 invalid_params.
+        $limit  = min(isset($params['limit']) ? (int) $params['limit'] : self::MAX_LIMIT, self::MAX_LIMIT);
+        if ($limit < 1) { $limit = self::MAX_LIMIT; }
         $offset = isset($params['offset']) ? max((int) $params['offset'], 0)              : 0;
         $source = isset($params['source']) ? (string) $params['source']                   : $helper->getDataSourceSlug();
         $strategy = isset($params['strategy']) ? (string) $params['strategy']             : 'auto';

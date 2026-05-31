@@ -40,6 +40,13 @@
         -->
         <reference name="notifications">
             <block type="mibizum_sync/adminhtml_queueNotice" name="mibizum_sync.queue_notice"/>
+            <!--
+              First-run install wizard. The block renders nothing on stores that
+              are already connected or where the wizard is done; otherwise it
+              shows the guided overlay (or a resume banner if dismissed). Safe by
+              design: any failure resolves to "render nothing".
+            -->
+            <block type="mibizum_sync/adminhtml_wizard" name="mibizum_sync.wizard"/>
         </reference>
     </default>
 </layout>

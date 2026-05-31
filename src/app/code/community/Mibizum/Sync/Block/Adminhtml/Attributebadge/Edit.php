@@ -27,9 +27,47 @@ class Mibizum_Sync_Block_Adminhtml_Attributebadge_Edit extends Mage_Adminhtml_Bl
         $model = Mage::registry('current_attribute_badge');
         if ($model && $model->getId()) {
             $this->_updateButton('delete', 'label', Mage::helper('mibizum_sync')->__('Remove badge'));
+            $this->_makeDeletePost(
+                $this->getUrl('adminhtml/mibizum_sync_attributebadge/delete', array('id' => $model->getId())),
+                Mage::helper('mibizum_sync')->__('Remove this badge?')
+            );
         } else {
             $this->_removeButton('delete');
         }
+    }
+
+    /**
+     * Replace the inherited "Delete" button's default GET navigation with a
+     * POST + form_key submit (CSRF defense-in-depth on top of the admin secret
+     * URL key). The matching controller action rejects anything that is not a
+     * POST carrying a valid form_key.
+     *
+     * @param string $url
+     * @param string $confirm
+     */
+    protected function _makeDeletePost($url, $confirm)
+    {
+        $formKey   = Mage::getSingleton('core/session')->getFormKey();
+        $confirmJs = Mage::helper('core')->jsQuoteEscape($confirm);
+        $this->_updateButton(
+            'delete',
+            'onclick',
+            "mibizumPostDelete('" . $url . "','" . $formKey . "','" . $confirmJs . "'); return false;"
+        );
+        $this->_formScripts[] = "
+            function mibizumPostDelete(url, formKey, message) {
+                if (!confirm(message)) { return false; }
+                var f = document.createElement('form');
+                f.method = 'POST';
+                f.action = url;
+                var i = document.createElement('input');
+                i.type = 'hidden'; i.name = 'form_key'; i.value = formKey;
+                f.appendChild(i);
+                document.body.appendChild(f);
+                f.submit();
+                return false;
+            }
+        ";
     }
 
     public function getHeaderText()

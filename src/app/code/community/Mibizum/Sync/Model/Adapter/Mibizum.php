@@ -157,21 +157,30 @@ class Mibizum_Sync_Model_Adapter_Mibizum
     }
 
     /**
-     * Remote search index stats (numberOfDocuments, fieldDistribution, etc.).
+     * Approximate "documents in the index" for the Reindex panel + install
+     * wizard. The SaaS has no dedicated engine-stats proxy yet, so we use a
+     * match-all search (`q=*`) and report its totalHits. It is an indicator,
+     * not an exact engine count, but it is live (grows as indexing progresses)
+     * and far better than the previous null stub (which left the counter at 0).
      *
-     * Inherited from a flow that called GET /indexes/{name}/stats directly. The
-     * SaaS does not yet expose a proxy for engine stats, so we return null and
-     * the caller (Block/Adminhtml/Reindex.php) shows "-" instead of a PHP fatal
-     * from an undefined method.
+     * Returns null on any failure so the caller shows "-" instead of breaking.
      *
-     * Future: add GET /api/v1/stats?source=X returning the tenant index stats.
-     * Until then, a null stub.
+     * Future: a dedicated GET /api/v1/stats?source=X would give the exact count.
      *
-     * @param string $indexName Ignored for now
-     * @return array|null
+     * @param string $indexName Ignored (the backend resolves the index from the key).
+     * @return array|null  e.g. array('numberOfDocuments' => 1035)
      */
     public function getStats($indexName = null)
     {
+        try {
+            $res = Mage::getModel('mibizum_sync/search_adapter')
+                ->search(array('q' => '*', 'limit' => 1, 'facets' => false));
+            if (is_array($res) && isset($res['totalHits'])) {
+                return array('numberOfDocuments' => (int) $res['totalHits']);
+            }
+        } catch (Exception $e) {
+            // Fall through to null; the panel/wizard will show "-".
+        }
         return null;
     }
 

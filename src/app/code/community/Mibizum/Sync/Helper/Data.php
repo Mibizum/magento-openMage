@@ -34,6 +34,13 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     const XML_PATH_BADGES_SHOW_NATURES    = 'mibizum_sync_badges/types/show_natures';
     const XML_PATH_BADGES_SHOW_ATTRIBUTES = 'mibizum_sync_badges/types/show_attributes';
     const XML_PATH_BADGES_SHOW_SYSTEM     = 'mibizum_sync_badges/types/show_system';
+    const XML_PATH_GENERAL_ENABLED        = 'mibizum_sync/general/enabled';
+    const XML_PATH_WIZARD_STATE           = 'mibizum_sync/wizard/state';
+
+    /** First-run install-wizard states (see Block_Adminhtml_Wizard). */
+    const WIZARD_PENDING   = 'pending';
+    const WIZARD_DISMISSED = 'dismissed';
+    const WIZARD_DONE      = 'done';
 
     /** @var bool|null Per-request cache for isEnabledAnywhere(). */
     protected $_enabledAnywhere = null;
@@ -247,6 +254,76 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     {
         $slug = trim((string) Mage::getStoreConfig(self::XML_PATH_DATA_SOURCE_SLUG, $store));
         return $slug !== '' ? $slug : null;
+    }
+
+    // -------------------------------------------------------------------------
+    // INSTALL WIZARD (first-run onboarding) - see Block_Adminhtml_Wizard
+    // -------------------------------------------------------------------------
+
+    /**
+     * Current first-run wizard state. Empty/missing is treated as `pending`
+     * (a fresh, unconfigured store). The block decides whether to show the
+     * overlay (active states), a resume banner (dismissed) or nothing
+     * (done, or the store is already connected).
+     *
+     * @return string
+     */
+    public function getWizardState()
+    {
+        $s = trim((string) Mage::getStoreConfig(self::XML_PATH_WIZARD_STATE));
+        return $s !== '' ? $s : self::WIZARD_PENDING;
+    }
+
+    /**
+     * Persist the wizard state at the default scope and flush the config cache
+     * so the next request sees it. Called only from the admin WizardController
+     * (ACL + form_key gated).
+     *
+     * @param string $state
+     * @return $this
+     */
+    public function setWizardState($state)
+    {
+        Mage::getConfig()->saveConfig(self::XML_PATH_WIZARD_STATE, (string) $state, 'default', 0);
+        try {
+            Mage::app()->getCacheInstance()->cleanType('config');
+        } catch (Exception $e) {
+            // Cache flush is best-effort; the value is persisted regardless.
+        }
+        return $this;
+    }
+
+    /**
+     * The wizard should never resurface once the merchant finished it or
+     * dismissed it for good.
+     *
+     * @return bool
+     */
+    public function isWizardClosed()
+    {
+        $s = $this->getWizardState();
+        return $s === self::WIZARD_DONE || $s === self::WIZARD_DISMISSED;
+    }
+
+    /**
+     * Origin (scheme://host[:port]) of the Mibizum SaaS, derived from the
+     * configured API URL. The wizard's parent JS accepts postMessage events
+     * ONLY from this exact origin (the iframe -> module key hand-off).
+     *
+     * @return string '' if the API URL cannot be parsed
+     */
+    public function getMibizumOrigin()
+    {
+        $url = $this->getApiUrl();
+        $p = @parse_url($url);
+        if (!$p || empty($p['scheme']) || empty($p['host'])) {
+            return '';
+        }
+        $origin = $p['scheme'] . '://' . $p['host'];
+        if (!empty($p['port'])) {
+            $origin .= ':' . $p['port'];
+        }
+        return $origin;
     }
 
     /**

@@ -28,6 +28,25 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_AttributeController extends Mage_Admin
         return Mage::getSingleton('admin/session')->isAllowed('mibizum_sync/search/attributes');
     }
 
+    /**
+     * CSRF guard for state-changing actions: require POST + a valid form_key
+     * (defense-in-depth on top of the admin secret URL key). Returns false,
+     * after queuing an error and a redirect, when the request must be rejected.
+     *
+     * @return bool
+     */
+    protected function _guardWrite()
+    {
+        if ($this->getRequest()->isPost() && $this->_validateFormKey()) {
+            return true;
+        }
+        Mage::getSingleton('adminhtml/session')->addError(
+            $this->__('Your session expired or the security token is invalid. Please retry.')
+        );
+        $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync_attributes'));
+        return false;
+    }
+
     protected function _initAction()
     {
         $this->loadLayout()
@@ -80,6 +99,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_AttributeController extends Mage_Admin
 
     public function saveAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $data = $this->getRequest()->getPost();
         if (empty($data)) {
             $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync_attributes'));
@@ -188,6 +210,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_AttributeController extends Mage_Admin
 
     public function deleteAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $configId = (int) $this->getRequest()->getParam('id');
         if (!$configId) {
             $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync_attributes'));
@@ -206,6 +231,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_AttributeController extends Mage_Admin
 
     public function massDeleteAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $ids = (array) $this->getRequest()->getParam('config_ids', array());
         $count = 0;
         foreach ($ids as $id) {

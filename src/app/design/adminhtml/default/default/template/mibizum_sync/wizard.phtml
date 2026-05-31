@@ -1,0 +1,329 @@
+<?php
+/**
+ * First-run install wizard.
+ *
+ * Two render modes (decided by the block):
+ *   - banner:  a slim strip offering to resume (state=dismissed).
+ *   - overlay: the full guided modal (states pending..studio).
+ *
+ * The account / key-provisioning / Widget-Studio steps are a hosted iframe
+ * (app.mibizum.io). The iframe posts the issued keys back; the parent forwards
+ * them to the native WizardController (encrypted). Indexing + widget are native.
+ * Strict postMessage origin checks on both sides. Fallback: a "configure
+ * manually" link if the iframe is unreachable.
+ *
+ * @var Mibizum_Sync_Block_Adminhtml_Wizard $this
+ */
+$mode = $this->getMode();
+if ($mode === '') { return; }
+
+$js = function ($v) { return json_encode($v, JSON_UNESCAPED_SLASHES); };
+?>
+<?php if ($mode === Mibizum_Sync_Block_Adminhtml_Wizard::MODE_BANNER): ?>
+<div id="mbz-wiz-banner" style="margin:8px 0; padding:10px 16px; border-radius:4px; background:#eef5fc; border:1px solid #bcdcf5; color:#1f4e7a; display:flex; align-items:center; gap:14px;">
+    <span style="font-weight:600;"><?php echo $this->__('Finish connecting your store to Mibizum search.'); ?></span>
+    <button type="button" id="mbz-wiz-resume" class="scalable"><span><?php echo $this->__('Resume setup'); ?></span></button>
+</div>
+<script type="text/javascript">
+//<![CDATA[
+(function () {
+    var b = document.getElementById('mbz-wiz-resume');
+    if (!b) { return; }
+    b.addEventListener('click', function () {
+        new Ajax.Request(<?php echo $js($this->getStateUrl()); ?>, {
+            method: 'post',
+            parameters: { form_key: <?php echo $js($this->getFormKey()); ?>, state: 'intro' },
+            requestHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
+            onComplete: function () { window.location.reload(); }
+        });
+    });
+})();
+//]]>
+</script>
+<?php return; endif; ?>
+
+<div id="mbz-wiz" role="dialog" aria-modal="true" aria-label="<?php echo Mage::helper('core')->quoteEscape($this->__('Mibizum setup')); ?>">
+    <div class="mbz-wiz-card">
+        <div class="mbz-wiz-head">
+            <span class="mbz-wiz-brand">MIBIZUM</span>
+            <ol class="mbz-wiz-steps">
+                <li data-dot="intro"><?php echo $this->__('Start'); ?></li>
+                <li data-dot="connect"><?php echo $this->__('Account'); ?></li>
+                <li data-dot="indexing"><?php echo $this->__('Indexing'); ?></li>
+                <li data-dot="widget"><?php echo $this->__('Widget'); ?></li>
+            </ol>
+            <button type="button" class="mbz-wiz-x" id="mbz-wiz-later" title="<?php echo Mage::helper('core')->quoteEscape($this->__('Continue later')); ?>">&times;</button>
+        </div>
+
+        <div class="mbz-wiz-body">
+            <div id="mbz-wiz-msg" class="mbz-wiz-msg" style="display:none;"></div>
+
+            <!-- Step: intro -->
+            <section class="mbz-wiz-step" data-step="intro">
+                <h2><?php echo $this->__('Connect this store to Mibizum search'); ?></h2>
+                <p><?php echo $this->__('We will connect'); ?>
+                    <strong><?php echo $this->escapeHtml($this->getStoreDomain()); ?></strong>
+                    <?php echo $this->__('to Mibizum: index your catalog, power the search box and add the instant-search widget.'); ?></p>
+                <p class="mbz-wiz-muted"><?php echo $this->__('Nothing changes in your store until the connection is complete. You can stop any time.'); ?></p>
+                <div class="mbz-wiz-actions">
+                    <button type="button" class="mbz-wiz-primary" id="mbz-wiz-go"><?php echo $this->__('Continue'); ?></button>
+                    <button type="button" class="mbz-wiz-link" id="mbz-wiz-later2"><?php echo $this->__('Later'); ?></button>
+                </div>
+            </section>
+
+            <!-- Step: connect (hosted iframe: account / login / key provisioning) -->
+            <section class="mbz-wiz-step" data-step="connect" style="display:none;">
+                <h2><?php echo $this->__('Sign in or create your Mibizum account'); ?></h2>
+                <div class="mbz-wiz-frame-wrap">
+                    <iframe id="mbz-wiz-frame" title="Mibizum onboarding" src="about:blank"></iframe>
+                    <div id="mbz-wiz-frame-fallback" class="mbz-wiz-fallback" style="display:none;">
+                        <p><?php echo $this->__('Could not load the Mibizum onboarding. You can configure the connection by hand instead.'); ?></p>
+                        <a class="mbz-wiz-primary" href="<?php echo $this->getConfigUrl(); ?>"><?php echo $this->__('Configure manually'); ?></a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step: indexing (native) -->
+            <section class="mbz-wiz-step" data-step="indexing" style="display:none;">
+                <h2><?php echo $this->__('Indexing your catalog'); ?></h2>
+                <p class="mbz-wiz-muted"><?php echo $this->__('This runs in the background. You can keep working; you do not need to wait here.'); ?></p>
+                <div class="mbz-wiz-progress"><div id="mbz-wiz-bar" class="mbz-wiz-bar"></div></div>
+                <p class="mbz-wiz-count"><span id="mbz-wiz-docs">0</span> <?php echo $this->__('products in the index'); ?>
+                    · <span id="mbz-wiz-pending">0</span> <?php echo $this->__('pending'); ?></p>
+                <div class="mbz-wiz-actions">
+                    <button type="button" class="mbz-wiz-primary" id="mbz-wiz-index-next" disabled><?php echo $this->__('Continue'); ?></button>
+                </div>
+            </section>
+
+            <!-- Step: widget (native) -->
+            <section class="mbz-wiz-step" data-step="widget" style="display:none;">
+                <h2><?php echo $this->__('Turn on the search widget'); ?></h2>
+                <p class="mbz-wiz-muted"><?php echo $this->__('Paste the widget snippet from your Mibizum panel (Domains -> JS code). If you connected through the wizard it may already be filled in.'); ?></p>
+                <textarea id="mbz-wiz-snippet" rows="4" spellcheck="false" placeholder="&lt;script ...&gt;"></textarea>
+                <div class="mbz-wiz-actions">
+                    <button type="button" class="mbz-wiz-primary" id="mbz-wiz-widget-save"><?php echo $this->__('Enable widget'); ?></button>
+                    <button type="button" class="mbz-wiz-link" id="mbz-wiz-widget-skip"><?php echo $this->__('Skip for now'); ?></button>
+                </div>
+            </section>
+
+            <!-- Step: studio (optional hosted iframe) -->
+            <section class="mbz-wiz-step" data-step="studio" style="display:none;">
+                <h2><?php echo $this->__('Style your widget (optional)'); ?></h2>
+                <div class="mbz-wiz-frame-wrap">
+                    <iframe id="mbz-wiz-studio-frame" title="Mibizum Widget Studio" src="about:blank"></iframe>
+                </div>
+                <div class="mbz-wiz-actions">
+                    <button type="button" class="mbz-wiz-primary" id="mbz-wiz-finish"><?php echo $this->__('Finish'); ?></button>
+                </div>
+            </section>
+
+            <!-- Step: done -->
+            <section class="mbz-wiz-step mbz-wiz-done" data-step="done" style="display:none;">
+                <div class="mbz-wiz-check" aria-hidden="true">
+                    <svg viewBox="0 0 52 52" width="76" height="76">
+                        <circle class="mbz-wiz-check-c" cx="26" cy="26" r="24" fill="none" stroke="#2f855a" stroke-width="3"/>
+                        <path class="mbz-wiz-check-m" fill="none" stroke="#2f855a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="M15 27 l7.5 7.5 L38 18"/>
+                    </svg>
+                </div>
+                <h2><?php echo $this->__('All set'); ?></h2>
+                <p><?php echo $this->__('Your store is connected to Mibizum. Your search box now uses the Mibizum engine.'); ?></p>
+                <div class="mbz-wiz-actions">
+                    <button type="button" class="mbz-wiz-primary" id="mbz-wiz-close"><?php echo $this->__('Close'); ?></button>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<style type="text/css">
+#mbz-wiz { position:fixed; inset:0; z-index:100000; background:rgba(20,30,45,.55); display:flex; align-items:center; justify-content:center; }
+#mbz-wiz * { box-sizing:border-box; }
+#mbz-wiz .mbz-wiz-card { width:min(720px,94vw); max-height:92vh; overflow:auto; background:#fff; border-radius:10px; box-shadow:0 18px 60px rgba(0,0,0,.35); font-family:-apple-system,'Helvetica Neue',Arial,sans-serif; }
+#mbz-wiz .mbz-wiz-head { display:flex; align-items:center; gap:16px; padding:14px 20px; border-bottom:1px solid #e6ebf1; }
+#mbz-wiz .mbz-wiz-brand { font-weight:800; letter-spacing:.22em; color:#2b6cb0; font-size:12px; }
+#mbz-wiz .mbz-wiz-steps { list-style:none; display:flex; gap:6px; margin:0; padding:0; flex:1; flex-wrap:wrap; }
+#mbz-wiz .mbz-wiz-steps li { font-size:11px; color:#9aa7b3; padding:3px 9px; border-radius:11px; background:#f2f5f8; }
+#mbz-wiz .mbz-wiz-steps li.is-active { color:#fff; background:#2b6cb0; font-weight:600; }
+#mbz-wiz .mbz-wiz-steps li.is-done { color:#2f855a; background:#e6f4ec; }
+#mbz-wiz .mbz-wiz-x { margin-left:auto; border:0; background:none; font-size:24px; line-height:1; color:#9aa7b3; cursor:pointer; }
+#mbz-wiz .mbz-wiz-body { padding:22px 24px 26px; }
+#mbz-wiz h2 { margin:0 0 10px; font-size:19px; color:#1f2d3d; }
+#mbz-wiz p { margin:0 0 10px; color:#3c4858; font-size:13.5px; line-height:1.55; }
+#mbz-wiz .mbz-wiz-muted { color:#7a8794; font-size:12.5px; }
+#mbz-wiz .mbz-wiz-actions { margin-top:18px; display:flex; align-items:center; gap:14px; }
+#mbz-wiz .mbz-wiz-primary { background:#2b6cb0; color:#fff; border:0; border-radius:6px; padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; }
+#mbz-wiz .mbz-wiz-primary:disabled { background:#aac4dd; cursor:default; }
+#mbz-wiz .mbz-wiz-link { background:none; border:0; color:#7a8794; font-size:12.5px; cursor:pointer; text-decoration:underline; }
+#mbz-wiz .mbz-wiz-frame-wrap { position:relative; border:1px solid #e6ebf1; border-radius:8px; overflow:hidden; height:440px; }
+#mbz-wiz iframe { width:100%; height:100%; border:0; display:block; }
+#mbz-wiz .mbz-wiz-fallback { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:#fff; padding:24px; text-align:center; }
+#mbz-wiz .mbz-wiz-progress { height:10px; border-radius:6px; background:#eef2f6; overflow:hidden; margin:6px 0 10px; }
+#mbz-wiz .mbz-wiz-bar { height:100%; width:0; background:#2b6cb0; transition:width .4s ease; }
+#mbz-wiz .mbz-wiz-bar.mbz-ind { width:40%; transform:translateX(-110%); animation: mbz-wiz-ind 1.1s ease-in-out infinite; }
+@keyframes mbz-wiz-ind { 0% { transform:translateX(-110%); } 100% { transform:translateX(275%); } }
+#mbz-wiz .mbz-wiz-done { text-align:center; }
+#mbz-wiz .mbz-wiz-done .mbz-wiz-actions { justify-content:center; }
+#mbz-wiz .mbz-wiz-check { width:76px; height:76px; margin:4px auto 10px; }
+#mbz-wiz .mbz-wiz-check svg { display:block; }
+#mbz-wiz .mbz-wiz-check-c { stroke-dasharray:151; stroke-dashoffset:151; animation: mbz-wiz-draw .5s ease forwards; }
+#mbz-wiz .mbz-wiz-check-m { stroke-dasharray:48; stroke-dashoffset:48; animation: mbz-wiz-draw .35s .45s ease forwards; }
+@keyframes mbz-wiz-draw { to { stroke-dashoffset:0; } }
+#mbz-wiz .mbz-wiz-count { font-size:13px; color:#3c4858; }
+#mbz-wiz textarea { width:100%; font-family:Menlo,Consolas,monospace; font-size:12px; padding:10px; border:1px solid #cfd8e2; border-radius:6px; }
+#mbz-wiz .mbz-wiz-msg { margin-bottom:14px; padding:9px 13px; border-radius:6px; font-weight:600; font-size:13px; }
+</style>
+
+<script type="text/javascript">
+//<![CDATA[
+(function () {
+    var CFG = {
+        state:        <?php echo $js($this->getState()); ?>,
+        onboardingUrl:<?php echo $js($this->getOnboardingUrl()); ?>,
+        mibizumOrigin:<?php echo $js($this->getMibizumOrigin()); ?>,
+        saveKeysUrl:  <?php echo $js($this->getSaveKeysUrl()); ?>,
+        widgetUrl:    <?php echo $js($this->getWidgetUrl()); ?>,
+        stateUrl:     <?php echo $js($this->getStateUrl()); ?>,
+        dismissUrl:   <?php echo $js($this->getDismissUrl()); ?>,
+        reindexUrl:   <?php echo $js($this->getFullReindexUrl()); ?>,
+        statsUrl:     <?php echo $js($this->getStatsUrl()); ?>,
+        formKey:      <?php echo $js($this->getFormKey()); ?>
+    };
+    var STEP_FOR_STATE = {
+        pending:'intro', intro:'intro', account:'connect', provisioning:'connect',
+        indexing:'indexing', widget:'widget', studio:'studio', done:'done'
+    };
+    var ORDER = ['intro','connect','indexing','widget'];
+
+    function $(id){ return document.getElementById(id); }
+    function root(){ return $('mbz-wiz'); }
+    function post(url, params, cb){
+        var p = Object.assign({ form_key: CFG.formKey }, params || {});
+        new Ajax.Request(url, {
+            method:'post', parameters:p,
+            requestHeaders:{ 'X-Requested-With':'XMLHttpRequest' },
+            onSuccess:function(r){ var d=null; try{ d=r.responseJSON||JSON.parse(r.responseText);}catch(e){} cb&&cb(d,true); },
+            onFailure:function(r){ cb&&cb(null,false,r); }
+        });
+    }
+    function msg(text, ok){
+        var el=$('mbz-wiz-msg'); if(!el){return;}
+        el.style.background = ok ? '#e6f4ec' : '#fdecea';
+        el.style.color      = ok ? '#2f855a' : '#a4342b';
+        el.textContent=text; el.style.display='block';
+        if(el._t){clearTimeout(el._t);} el._t=setTimeout(function(){el.style.display='none';},8000);
+    }
+
+    function showStep(step){
+        var steps = root().querySelectorAll('.mbz-wiz-step');
+        for (var i=0;i<steps.length;i++){ steps[i].style.display = (steps[i].getAttribute('data-step')===step)?'block':'none'; }
+        // step dots
+        var dots = root().querySelectorAll('.mbz-wiz-steps li');
+        var idx = ORDER.indexOf(step);
+        for (var j=0;j<dots.length;j++){
+            var key = dots[j].getAttribute('data-dot');
+            var di  = ORDER.indexOf(key);
+            dots[j].className = (di<idx) ? 'is-done' : (di===idx ? 'is-active' : '');
+        }
+        if (step==='connect'){ loadFrame('mbz-wiz-frame', CFG.onboardingUrl); }
+        if (step==='studio'){ loadFrame('mbz-wiz-studio-frame', CFG.onboardingUrl + (CFG.onboardingUrl.indexOf('?')>=0?'&':'?') + 'step=studio'); }
+        if (step==='indexing'){ startIndexing(); }
+    }
+
+    var _frameTimer=null;
+    function loadFrame(id, url){
+        var f=$(id); if(!f){return;}
+        if (!CFG.mibizumOrigin || !url){ showFallback(); return; }
+        f.src = url;
+        // If the SaaS page is unreachable we never get a postMessage; surface a
+        // manual-config fallback after a grace period (only for the main frame).
+        if (id==='mbz-wiz-frame'){
+            if(_frameTimer){clearTimeout(_frameTimer);}
+            _frameTimer = setTimeout(function(){ /* keep iframe; fallback link already available below it on error */ }, 12000);
+            f.onerror = showFallback;
+        }
+    }
+    function showFallback(){ var fb=$('mbz-wiz-frame-fallback'); if(fb){fb.style.display='flex';} }
+
+    // ---- postMessage from the hosted onboarding iframe ----
+    window.addEventListener('message', function (ev) {
+        if (!CFG.mibizumOrigin || ev.origin !== CFG.mibizumOrigin) { return; } // strict origin check
+        var d = ev.data || {};
+        if (!d || typeof d.type !== 'string') { return; }
+        if (d.type === 'mibizum:keys') {
+            post(CFG.saveKeysUrl, {
+                indexer_key: d.indexerKey || '',
+                search_key:  d.searchKey || '',
+                data_source_slug: d.dataSourceSlug || ''
+            }, function (res, ok) {
+                if (ok && res && res.success) {
+                    if (d.widgetSnippet) { var t=$('mbz-wiz-snippet'); if(t){ t.value=d.widgetSnippet; } }
+                    showStep('indexing');
+                } else { msg((res && res.message) || <?php echo $js($this->__('Could not save the connection.')); ?>, false); }
+            });
+        } else if (d.type === 'mibizum:cancel') {
+            later();
+        } else if (d.type === 'mibizum:studioDone') {
+            goDone();
+        }
+    }, false);
+
+    // ---- indexing (native, reuses the Reindex endpoints) ----
+    var _poll=null, _started=false;
+    function startIndexing(){
+        if (_started) { return; } _started = true;
+        // Indeterminate animated bar (a "loader") while the catalog is pushed —
+        // a fixed % would be misleading since the drain is synchronous.
+        var bar=$('mbz-wiz-bar'); if(bar){ bar.style.width=''; bar.className='mbz-wiz-bar mbz-ind'; }
+        pollStats();
+        _poll = setInterval(pollStats, 2500);
+        post(CFG.reindexUrl, {}, function(){ pollStats(); finishIndexing(); });
+    }
+    function pollStats(){
+        new Ajax.Request(CFG.statsUrl, { method:'get', onSuccess:function(r){
+            var d=null; try{ d=r.responseJSON||JSON.parse(r.responseText);}catch(e){}
+            if(!d){return;}
+            var docs = (d.index && d.index.numberOfDocuments) ? Number(d.index.numberOfDocuments) : 0;
+            var pend = (d.queue && d.queue.pending) ? Number(d.queue.pending) : 0;
+            var dEl=$('mbz-wiz-docs'), pEl=$('mbz-wiz-pending');
+            if(dEl){dEl.textContent=docs.toLocaleString('en-US');} if(pEl){pEl.textContent=pend.toLocaleString('en-US');}
+            if (pend===0 && docs>0) { finishIndexing(); }
+        }});
+    }
+    function finishIndexing(){
+        if(_poll){clearInterval(_poll); _poll=null;}
+        var bar=$('mbz-wiz-bar'); if(bar){ bar.className='mbz-wiz-bar'; bar.style.width='100%'; }
+        var b=$('mbz-wiz-index-next'); if(b){ b.disabled=false; }
+    }
+
+    // ---- transitions ----
+    function setState(s, cb){ post(CFG.stateUrl, { state:s }, cb); }
+    function later(){ post(CFG.dismissUrl, {}, function(){ hide(); }); }
+    // Studio step "Finish"/launch -> show the success screen (big check); persist done.
+    function goDone(){ setState('done'); showStep('done'); }
+    function finish(){ setState('done', function(){ hide(); }); }
+    function hide(){ var r=root(); if(r){ r.parentNode && r.parentNode.removeChild(r); } }
+
+    function bind(id, fn){ var e=$(id); if(e){ e.addEventListener('click', fn); } }
+
+    document.observe('dom:loaded', function () {
+        if (!root()) { return; }
+        bind('mbz-wiz-later', later);
+        bind('mbz-wiz-later2', later);
+        bind('mbz-wiz-go', function(){ setState('account'); showStep('connect'); });
+        bind('mbz-wiz-index-next', function(){ setState('widget'); showStep('widget'); });
+        bind('mbz-wiz-widget-save', function(){
+            var t=$('mbz-wiz-snippet'); var snip = t ? t.value : '';
+            post(CFG.widgetUrl, { widget_snippet: snip }, function(res, ok){
+                if (ok && res && res.success) { showStep('studio'); }
+                else { msg((res && res.message) || <?php echo $js($this->__('Could not enable the widget.')); ?>, false); }
+            });
+        });
+        bind('mbz-wiz-widget-skip', function(){ setState('studio'); showStep('studio'); });
+        bind('mbz-wiz-finish', goDone);
+        bind('mbz-wiz-close', finish);
+
+        showStep(STEP_FOR_STATE[CFG.state] || 'intro');
+    });
+})();
+//]]>
+</script>

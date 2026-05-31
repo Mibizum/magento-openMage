@@ -29,6 +29,25 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_SystemoverrideController extends Mage_
         return $this;
     }
 
+    /**
+     * CSRF guard for state-changing actions: require POST + a valid form_key
+     * (defense-in-depth on top of the admin secret URL key). Returns false,
+     * after queuing an error and a redirect, when the request must be rejected.
+     *
+     * @return bool
+     */
+    protected function _guardWrite()
+    {
+        if ($this->getRequest()->isPost() && $this->_validateFormKey()) {
+            return true;
+        }
+        Mage::getSingleton('adminhtml/session')->addError(
+            $this->__('Your session expired or the security token is invalid. Please retry.')
+        );
+        $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync_badges'));
+        return false;
+    }
+
     public function indexAction()
     {
         $this->_initLayout()
@@ -64,6 +83,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_SystemoverrideController extends Mage_
 
     public function saveAction()
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $data = $this->getRequest()->getPost();
         if (empty($data)) {
             return $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync_badges'));
@@ -246,6 +268,9 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_SystemoverrideController extends Mage_
      */
     protected function _massSetEnabled($enabled)
     {
+        if (!$this->_guardWrite()) {
+            return;
+        }
         $ids = (array) $this->getRequest()->getParam('badge_ids');
         $ids = array_filter(array_map('intval', $ids));
         if (empty($ids)) {

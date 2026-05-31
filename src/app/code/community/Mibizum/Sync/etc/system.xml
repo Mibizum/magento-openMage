@@ -31,7 +31,7 @@
     mibizum_sync/frontend/overlay_max_width    <- int (default 900)
     mibizum_sync/testing/mode                  <- bool
     mibizum_sync/testing/ip_whitelist          <- text (whitespace/comma separated)
-    mibizum_sync/testing/input_selector        <- string (default '#mibizum-search-input')
+    mibizum_sync/testing/input_selector        <- string (default '#search')
 
   The General, Frontend and Testing mode groups expose the same settings in the
   Magento admin as in the Mibizum SaaS panel. The frontend/* and testing/*
@@ -95,17 +95,11 @@
                             <show_in_website>1</show_in_website>
                             <show_in_store>1</show_in_store>
                         </feature_flag_param>
-                        <!-- data_source_slug removed from the `general` group:
-                             it duplicated the connection field. It now only
-                             exists in connection/data_source_slug. -->
-                        <debug_mode translate="label comment">
-                            <label>Debug mode</label>
-                            <comment>Shows extra technical information in the admin (for example, the raw index status data). For diagnostics (leave it off during normal use).</comment>
-                            <frontend_type>select</frontend_type>
-                            <source_model>adminhtml/system_config_source_yesno</source_model>
-                            <sort_order>40</sort_order>
-                            <show_in_default>1</show_in_default>
-                        </debug_mode>
+                        <!-- data_source_slug AND debug_mode removed from the
+                             `general` group: both duplicated fields that already
+                             live under `connection`. The single debug toggle is
+                             connection/debug_mode (the only one the code reads);
+                             a second one here was a dead control. -->
                     </fields>
                 </general>
 
@@ -269,7 +263,7 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                         </ip_whitelist>
                         <input_selector translate="label comment">
                             <label>Search input CSS selector</label>
-                            <comment>Selector the Mibizum SDK attaches to. Default "#mibizum-search-input" (does NOT exist in the current store, so the JS will not interfere with the old search box). Change it to "#search" only when you are actually ready to replace the legacy search box.</comment>
+                            <comment>CSS selector the Mibizum widget attaches to. Default "#search" (the native Magento 1.x search box), so the widget works as soon as the module is enabled. For a gradual rollout without touching the live search yet, use Testing mode (IP whitelist) or the URL feature flag above. Change this only if your theme uses a different search input.</comment>
                             <frontend_type>text</frontend_type>
                             <sort_order>30</sort_order>
                             <show_in_default>1</show_in_default>
@@ -314,8 +308,8 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                         </api_url>
 
                         <api_key translate="label comment">
-                            <label>API key (indexer)</label>
-                            <comment><![CDATA[Your tenant API key with <strong>indexer</strong> scope (the module uses it to PUBLISH products to the catalog). You can find it in the Mibizum panel: <em>Catalogs -> your catalog -> API keys</em>. Stored encrypted in the DB.]]></comment>
+                            <label>Private API key</label>
+                            <comment><![CDATA[Your <strong>private</strong> API key (indexing). The module uses it to PUBLISH products to your catalog, so keep it secret and server-side. If it is ever exposed, regenerate it in the Mibizum panel: <em>Catalogs -> your catalog -> API keys</em>. Stored encrypted in the DB.]]></comment>
                             <frontend_type>obscure</frontend_type>
                             <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
                             <sort_order>30</sort_order>
@@ -324,15 +318,15 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                             <show_in_store>1</show_in_store>
                         </api_key>
 
-                        <!-- A second key with scope=search for the server-side
-                             Enter adapter (`/catalogsearch/result/`). Mibizum
-                             separates scopes: indexer (PUBLISHES docs) vs search
-                             (READS docs). The public JS widget also uses
-                             scope=search, but from the browser with a
-                             CORS-validated origin. -->
+                        <!-- A second, public key for the server-side Enter
+                             adapter (`/catalogsearch/result/`). Mibizum separates
+                             the two keys by what they can do: the private key
+                             PUBLISHES docs, the public key only READS docs. The
+                             public JS widget also uses this same public key, but
+                             from the browser with a CORS-validated origin. -->
                         <search_api_key translate="label comment">
-                            <label>API key (search)</label>
-                            <comment><![CDATA[API key with <strong>search</strong> scope (used by the Enter override so `/catalogsearch/result/` queries the Mibizum engine). It is the SAME key you would put in the public JS widget. Stored encrypted in the DB.]]></comment>
+                            <label>Public API key</label>
+                            <comment><![CDATA[Your <strong>public</strong> API key (search). Used by the Enter override so `/catalogsearch/result/` queries the Mibizum engine, and it is the SAME key that goes in the browser JS widget, so it is safe to expose. It can only read/search, never modify. Stored encrypted in the DB.]]></comment>
                             <frontend_type>obscure</frontend_type>
                             <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
                             <sort_order>35</sort_order>

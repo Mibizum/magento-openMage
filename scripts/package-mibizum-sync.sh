@@ -141,7 +141,7 @@ done
 
 cat <<EOF
 
-Install channels (see the project wiki: https://github.com/Mibizum/magento-openMage/wiki):
+Install channels (see docs/sessions/magento-module-mibizum-sync.md):
 
   - Direct:   tar -xzf $(basename "$FULL") -C /path/to/magento/
               rm -rf /path/to/magento/var/cache/*
