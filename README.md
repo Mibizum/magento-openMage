@@ -4,7 +4,7 @@ installed in the merchant's store to connect their catalog with the Mibizum SaaS
 
 ## Status
 
-`v0.6.7` - **production-ready and distributable** through all the standard
+`v0.6.8` - **production-ready and distributable** through all the standard
 Magento 1 channels (direct, two-phase FTP, Magento Connect, Composer, modman).
 Full safe-disable hardening + CSRF hardening (POST + form_key on every
 state-changing admin action). The packaging/install/uninstall guide lives in
