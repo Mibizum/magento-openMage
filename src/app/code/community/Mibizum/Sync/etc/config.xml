@@ -74,7 +74,19 @@
                      progress bar: buttons lock while indexing, a spinner shows
                      "done / total" updated ~1×/second, and a completion notice
                      unlocks them. Enqueue + poll-drain (full/progress actions). -->
-            <version>0.6.9</version>
+            <!-- 0.6.10:
+                 (1) The progress-tracked reindex now reports its sync-run to the
+                     backend (POST /api/v1/sync-runs): a 'running' event at start
+                     and the terminal event on finish, so the Mibizum Superadmin
+                     shows "reindex in progress per tenant" live. Reuses the run
+                     id to close precisely; old backends 404 silently as before.
+                 (2) Parity: the progress-tracked reindex (AJAX console) now also
+                     applies the engine attribute schema first (applyEngineSettings,
+                     best-effort), like the classic synchronous fullReindex did.
+                 (3) Worker logs a WARN when two distinct SKUs sanitize to the same
+                     Meilisearch doc id (collision), so the silent shadowing is now
+                     visible. Code-only; no DB schema change. -->
+            <version>0.6.10</version>
         </Mibizum_Sync>
     </modules>
 

@@ -810,14 +810,54 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     }
 
     /**
-     * Reports a sync run to the Mibizum backend.
-     * Endpoint POST /api/v1/sync-runs - best-effort for now, we silence 404.
+     * Reports a (terminal) sync run to the Mibizum backend.
+     * Endpoint POST /api/v1/sync-runs - best-effort, we silence 404.
+     *
+     * To CLOSE a run previously opened with reportSyncRunStart(), include its id
+     * as $payload['sync_run_id']; otherwise the backend closes the most recent
+     * open run of this data source (or creates a terminal row for old backends).
      */
     public function reportSyncRun(array $payload)
     {
+        $this->_postSyncRun($payload);
+    }
+
+    /**
+     * Reports the START of a reindex (status=running, no finished_at) so the
+     * Superadmin can show "reindex in progress" live. Returns the backend run id
+     * (pass it back as sync_run_id when reporting the finish), or null if the
+     * backend did not return one / is unreachable / is an old version without
+     * the endpoint.
+     *
+     * @param  string $trigger 'manual' | 'cron' | 'cli'
+     * @return int|null
+     */
+    public function reportSyncRunStart($trigger = 'manual')
+    {
+        $resp = $this->_postSyncRun(array(
+            'status'     => 'running',
+            'trigger'    => $trigger,
+            'started_at' => gmdate('c'),
+        ));
+        if (is_array($resp) && isset($resp['id']) && is_numeric($resp['id'])) {
+            return (int) $resp['id'];
+        }
+        return null;
+    }
+
+    /**
+     * POSTs a sync-run payload to POST /api/v1/sync-runs. Best-effort: silences
+     * 404 (old backend without the endpoint) and network errors. Returns the
+     * decoded JSON response array on a 2xx, or null otherwise.
+     *
+     * @param  array $payload
+     * @return array|null
+     */
+    protected function _postSyncRun(array $payload)
+    {
         $apiUrl = $this->getApiUrl();
         $apiKey = $this->getApiKey();
-        if (!$apiUrl || !$apiKey) return;
+        if (!$apiUrl || !$apiKey) return null;
 
         if (!isset($payload['data_source_slug']) && $this->getDataSourceSlug()) {
             $payload['data_source_slug'] = $this->getDataSourceSlug();
@@ -843,15 +883,21 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
             $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
 
-            if ($code !== 201 && $code !== 200 && $code !== 404) {
+            if ($code === 200 || $code === 201) {
+                $decoded = json_decode((string) $resp, true);
+                return is_array($decoded) ? $decoded : null;
+            }
+            if ($code !== 404) {
                 $this->log(
                     "reportSyncRun: backend responded HTTP $code",
                     Zend_Log::WARN,
                     array('response' => substr((string) $resp, 0, 500))
                 );
             }
+            return null;
         } catch (Exception $e) {
             $this->log('reportSyncRun failed: ' . $e->getMessage(), Zend_Log::WARN);
+            return null;
         }
     }
 

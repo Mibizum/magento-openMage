@@ -119,6 +119,13 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
             $sess  = Mage::getSingleton('adminhtml/session');
             $sess->setMibizumReindexTotal($total);
             $sess->setMibizumReindexFailed(0);
+            $sess->setMibizumReindexSucceeded(0);
+            $sess->setMibizumReindexDeleted(0);
+            $sess->setMibizumReindexStartedAt(gmdate('c'));
+            // Report the START so the Superadmin sees this reindex "in progress"
+            // live; keep the backend run id to close it precisely on finish.
+            $runId = Mage::helper('mibizum_sync')->reportSyncRunStart('manual');
+            $sess->setMibizumReindexSyncRunId($runId ? (int) $runId : null);
             // Mark "running" so a mid-reindex page reload resumes the progress view.
             $cfg = Mage::getConfig();
             $cfg->saveConfig('mibizum_sync/reindex/last_full_status', 'running');
@@ -153,6 +160,14 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
             $failed = (int) $sess->getMibizumReindexFailed()
                     + (isset($totals['failed']) ? (int) $totals['failed'] : 0);
             $sess->setMibizumReindexFailed($failed);
+            // Accumulate succeeded/deleted across polls too, so the sync-run we
+            // report to the backend (and the panel) has honest item counts.
+            $succeeded = (int) $sess->getMibizumReindexSucceeded()
+                       + (isset($totals['succeeded']) ? (int) $totals['succeeded'] : 0);
+            $sess->setMibizumReindexSucceeded($succeeded);
+            $deleted = (int) $sess->getMibizumReindexDeleted()
+                     + (isset($totals['deleted']) ? (int) $totals['deleted'] : 0);
+            $sess->setMibizumReindexDeleted($deleted);
 
             $qstats  = Mage::getSingleton('mibizum_sync/indexer_queue')->getStats();
             $pending = isset($qstats['pending']) ? (int) $qstats['pending'] : 0;
@@ -175,8 +190,38 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
                 $cfg->saveConfig('mibizum_sync/reindex/last_full_at', gmdate('c'));
                 $cfg->saveConfig('mibizum_sync/reindex/last_full_status', $status);
                 Mage::app()->getCacheInstance()->cleanType('config');
+
+                // Close the sync-run we opened at start (Superadmin telemetry).
+                // Best-effort; mirrors the mapping the classic fullReindex uses.
+                $startedAt = $sess->getMibizumReindexStartedAt();
+                $startMs   = $startedAt ? strtotime($startedAt) : null;
+                $payload = array(
+                    'status'        => $status,
+                    'trigger'       => 'manual',
+                    'started_at'    => $startedAt ?: gmdate('c'),
+                    'finished_at'   => gmdate('c'),
+                    'items_added'   => 0,
+                    'items_updated' => max(0, $succeeded - $deleted),
+                    'items_removed' => $deleted,
+                    'items_failed'  => $failed,
+                    'duration_ms'   => $startMs ? max(0, (int) round((microtime(true) - $startMs) * 1000)) : null,
+                    'meta'          => array(
+                        'processed' => $succeeded + $failed,
+                        'enqueued'  => $total,
+                    ),
+                );
+                $runId = $sess->getMibizumReindexSyncRunId();
+                if ($runId) {
+                    $payload['sync_run_id'] = (int) $runId;
+                }
+                Mage::helper('mibizum_sync')->reportSyncRun($payload);
+
                 $sess->unsMibizumReindexTotal();
                 $sess->unsMibizumReindexFailed();
+                $sess->unsMibizumReindexSucceeded();
+                $sess->unsMibizumReindexDeleted();
+                $sess->unsMibizumReindexStartedAt();
+                $sess->unsMibizumReindexSyncRunId();
                 $justFinished = true;
             }
 
