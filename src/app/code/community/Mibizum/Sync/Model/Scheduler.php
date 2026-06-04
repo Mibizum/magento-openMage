@@ -175,6 +175,20 @@ class Mibizum_Sync_Model_Scheduler
             );
         }
 
+        // Parity with the classic synchronous fullReindex(): re-apply the
+        // attribute schema to the engine BEFORE publishing, so the
+        // progress-tracked console reindex also fixes a possible schema/index
+        // desync (otherwise a newly-added attribute filter could 400 and fall
+        // back to MySQL). Best-effort: a failure here must not abort the reindex.
+        try {
+            $this->applyEngineSettings();
+        } catch (Exception $e) {
+            $helper->log(
+                'enqueueFullReindex: applyEngineSettings failed (continuing reindex anyway): ' . $e->getMessage(),
+                Zend_Log::WARN
+            );
+        }
+
         $productIds = Mage::getModel('catalog/product')
             ->getCollection()
             ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)

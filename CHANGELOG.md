@@ -2,6 +2,33 @@
 
 All notable changes to the Magento 1 / OpenMage module are documented here.
 
+## 0.6.10
+
+### Added — reindex telemetry reaches the Mibizum Superadmin
+
+The progress-tracked reindex now reports to the backend (`POST /api/v1/sync-runs`)
+a **`running`** event when it starts and the **terminal** event (success/partial/
+failed + item counts + duration) when it finishes, reusing the backend run id to
+close it precisely. This powers the Mibizum Superadmin's **"reindex in progress
+per tenant"** view. Best-effort and backward-compatible: an old backend without
+the endpoint still 404s silently. The classic synchronous `fullReindex()` already
+reported the terminal event; nothing regresses there.
+
+### Fixed — AJAX reindex now applies the engine schema (parity)
+
+The non-blocking console reindex now calls `applyEngineSettings()` first (best-
+effort), matching the classic `fullReindex()`. Previously a console reindex
+skipped the attribute-schema sync, so a newly-added searchable/filterable
+attribute could 400 and fall back to MySQL until the next cron/CLI reindex.
+
+### Added — SKU collision warning
+
+The `Worker` now logs a **WARN** when two distinct SKUs sanitize to the same
+Meilisearch document id (e.g. `FRA-PIÑA` vs `FRA-PINA`), where the later one
+silently shadows the earlier in the index. Detection is per-batch (best-effort);
+the definitive fix (hash-suffixed ids) needs an index clear and is tracked
+separately. Code-only; no DB schema change.
+
 ## 0.6.9
 
 ### Added — Reindex console with live progress

@@ -239,7 +239,8 @@ class Mibizum_Sync_Model_Indexer_Worker
             $client = Mage::getModel('mibizum_sync/adapter_mibizum');
 
             $docs      = array();   // docs to upsert in this destination
-            $docQueue  = array();   // doc id (SKU) => queue_id
+            $docQueue  = array();   // doc id (sanitized SKU) => queue_id
+            $docSku    = array();   // doc id => original SKU (for collision diag)
             $deleteSku = array();   // SKUs to remove from this destination (mapper said skip)
 
             foreach ($upsertEntries as $e) {
@@ -271,8 +272,29 @@ class Mibizum_Sync_Model_Indexer_Worker
                     continue;
                 }
 
+                // Collision guard: two DISTINCT products whose SKUs sanitize to
+                // the SAME Meili id (e.g. accents/punctuation: "FRA-PIÑA" vs
+                // "FRA-PINA"). Meili keys by id, so the later doc SHADOWS the
+                // earlier one AND the earlier's queue entry never reaches its
+                // destination (it churns until max_attempts). Surface it loudly;
+                // the real fix (hash-suffixed ids) needs an index clear, tracked
+                // as a follow-up. Detection is per-batch (cheap best-effort): two
+                // colliding SKUs in different drain batches won't be paired here.
+                $docId = $doc['id'];
+                if (isset($docQueue[$docId])) {
+                    $helper->log(
+                        sprintf(
+                            'Worker: SKU collision - doc id "%s" produced by SKUs "%s" and "%s"; the latter shadows the former in the search index.',
+                            $docId,
+                            isset($docSku[$docId]) ? $docSku[$docId] : '?',
+                            isset($doc['sku']) ? $doc['sku'] : '?'
+                        ),
+                        Zend_Log::WARN
+                    );
+                }
                 $docs[] = $doc;
-                $docQueue[$doc['id']] = $qid;
+                $docQueue[$docId] = $qid;
+                $docSku[$docId]   = isset($doc['sku']) ? $doc['sku'] : '';
             }
 
             // Remove the not-indexable ones from this destination (best effort).
