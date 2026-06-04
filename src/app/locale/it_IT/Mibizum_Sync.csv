@@ -312,3 +312,8 @@ Se il tuo tema usa una casella di ricerca personalizzata, inserisci qui il selet
 "Connection saved.","Connessione salvata."
 "Widget enabled.","Widget attivato."
 "Unknown wizard state.","Stato della procedura guidata sconosciuto."
+"Indexing…","Indicizzazione…"
+"Reindex complete: %s product(s) indexed.","Reindicizzazione completata: %s prodotto/i indicizzato/i."
+"Reindex finished with %s error(s). Check the log.","Reindicizzazione terminata con %s errore/i. Controlla il log."
+"Reindex started: %s product(s) queued.","Reindicizzazione avviata: %s prodotto/i in coda."
+"Full reindex completed. Check the mibizum_sync.log log for details.","Reindicizzazione completa terminata. Controlla il log mibizum_sync.log."

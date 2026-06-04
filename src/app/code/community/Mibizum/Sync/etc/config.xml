@@ -57,7 +57,24 @@
                  exposed) and "Public API key" (read/search, goes in the widget,
                  safe to expose), with help text + i18n updated in all 6 locales.
                  Config field node names are unchanged. Code-only; no DB change. -->
-            <version>0.6.8</version>
+            <!-- 0.6.9:
+                 (1) System badges (stock_out/stock_low/in_offer/new/featured)
+                     now reach the search widget. ProductMapper resolves them per
+                     product into the document's `_badges` array, which the SDK
+                     renders with full visuals. Icons must be SVG, not FontAwesome
+                     (the widget's shadow DOM isolates CSS); the 0.6.8->0.6.9
+                     upgrade backfills inline-SVG icons for the default-iconed
+                     badges when the merchant has not set one.
+                 (2) Document ids are sanitized from the SKU (ProductMapper::
+                     sanitizeDocId). A SKU with an accent (Ñ, á…) is an invalid
+                     Meilisearch id and used to abort the WHOLE batch it shared,
+                     silently dropping ~50 other products per bad SKU on every
+                     reindex. The original SKU is kept in the `sku` field.
+                 (3) The admin Reindex console is now non-blocking with a live
+                     progress bar: buttons lock while indexing, a spinner shows
+                     "done / total" updated ~1×/second, and a completion notice
+                     unlocks them. Enqueue + poll-drain (full/progress actions). -->
+            <version>0.6.9</version>
         </Mibizum_Sync>
     </modules>
 

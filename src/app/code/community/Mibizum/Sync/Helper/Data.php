@@ -477,6 +477,61 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     }
 
     /**
+     * Visual config of the 5 system badges keyed by kind (stock_out, stock_low,
+     * in_offer, new, featured), read from mibizum_sync_system_badge_overrides.
+     *
+     * This is the VISUAL half (color/shape/icon/position) that the merchant
+     * customizes; the behavioral half (enabled/label/threshold/days) lives in
+     * getBadgesConfig(). The ProductMapper merges both to publish the resolved
+     * system badges in the document.
+     *
+     * SAFE-DISABLE: returns [] if the table is missing (partial install), so the
+     * indexer never propagates an SQL error into the document.
+     *
+     * @return array  {kind => {color_hex, text_color_hex, icon_svg, icon_url,
+     *                          icon_fa_class, position, shape, display_mode,
+     *                          sort_priority}}
+     */
+    public function getSystemBadgesVisualByKind()
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+
+        $resource = Mage::getSingleton('core/resource');
+        $read     = $resource->getConnection('core_read');
+        $table    = $resource->getTableName('mibizum_sync/systemOverride');
+
+        try {
+            $rows = $read->fetchAll(
+                "SELECT kind, color_hex, text_color_hex, icon_svg, icon_url, icon_fa_class,
+                        position, shape, display_mode, sort_priority
+                 FROM $table"
+            );
+        } catch (Exception $e) {
+            $this->log('getSystemBadgesVisualByKind query failed (missing table?): ' . $e->getMessage(), Zend_Log::WARN);
+            $cached = array();
+            return $cached;
+        }
+
+        $out = array();
+        foreach ($rows as $r) {
+            $out[(string) $r['kind']] = array(
+                'color_hex'      => (string) $r['color_hex'],
+                'text_color_hex' => ($r['text_color_hex'] !== null && $r['text_color_hex'] !== '') ? (string) $r['text_color_hex'] : '#FFFFFF',
+                'icon_svg'       => ($r['icon_svg'] !== null && $r['icon_svg'] !== '') ? (string) $r['icon_svg'] : null,
+                'icon_url'       => ($r['icon_url'] !== null && $r['icon_url'] !== '') ? (string) $r['icon_url'] : null,
+                'icon_fa_class'  => (isset($r['icon_fa_class']) && $r['icon_fa_class'] !== null && $r['icon_fa_class'] !== '') ? (string) $r['icon_fa_class'] : null,
+                'position'       => (string) $r['position'],
+                'shape'          => (string) $r['shape'],
+                'display_mode'   => (string) $r['display_mode'],
+                'sort_priority'  => (int) $r['sort_priority'],
+            );
+        }
+        $cached = $out;
+        return $cached;
+    }
+
+    /**
      * Index of nature badges by category_id, expanding descendants via path
      * LIKE. Returns a dict {category_id => badge_data} with the WINNING badge
      * per category (lowest sort_priority).

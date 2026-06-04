@@ -312,3 +312,8 @@ Si votre thème utilise une boîte de recherche personnalisée, saisissez ici le
 "Connection saved.","Connexion enregistrée."
 "Widget enabled.","Widget activé."
 "Unknown wizard state.","État de l'assistant inconnu."
+"Indexing…","Indexation…"
+"Reindex complete: %s product(s) indexed.","Réindexation terminée : %s produit(s) indexé(s)."
+"Reindex finished with %s error(s). Check the log.","Réindexation terminée avec %s erreur(s). Consultez le journal."
+"Reindex started: %s product(s) queued.","Réindexation lancée : %s produit(s) en file d'attente."
+"Full reindex completed. Check the mibizum_sync.log log for details.","Réindexation complète terminée. Consultez le journal mibizum_sync.log."

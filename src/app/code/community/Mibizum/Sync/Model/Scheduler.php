@@ -156,6 +156,45 @@ class Mibizum_Sync_Model_Scheduler
     }
 
     /**
+     * Enqueue phase of a full reindex WITHOUT draining. Used by the admin
+     * Reindex console for a non-blocking, progress-tracked reindex: the console
+     * enqueues here (fast) and then drains in small batches via repeated
+     * progress polls, so the merchant sees a live counter instead of a frozen
+     * request. The synchronous fullReindex() above is still used by cron/CLI.
+     *
+     * @return int Number of products enqueued.
+     * @throws Exception if the module is not connected anywhere.
+     */
+    public function enqueueFullReindex()
+    {
+        /** @var Mibizum_Sync_Helper_Data $helper */
+        $helper = Mage::helper('mibizum_sync');
+        if (!$helper->isEnabledAnywhere()) {
+            throw new Exception(
+                $helper->__('Mibizum Sync is not connected: check Connection (Enabled + API key + API URL) before reindexing.')
+            );
+        }
+
+        $productIds = Mage::getModel('catalog/product')
+            ->getCollection()
+            ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)
+            ->addAttributeToFilter(
+                'visibility',
+                array('in' => array(
+                    Mage_Catalog_Model_Product_Visibility::VISIBILITY_IN_SEARCH,
+                    Mage_Catalog_Model_Product_Visibility::VISIBILITY_BOTH,
+                ))
+            )
+            ->getAllIds();
+
+        /** @var Mibizum_Sync_Model_Indexer_Queue $queue */
+        $queue    = Mage::getSingleton('mibizum_sync/indexer_queue');
+        $enqueued = (int) $queue->enqueueBulkUpsert($productIds, 'full_reindex');
+        $helper->log("enqueueFullReindex enqueued $enqueued products (progress-tracked)");
+        return $enqueued;
+    }
+
+    /**
      * (An earlier version had applyEngineSettings() here, sending
      * searchable/filterable/sortable + rankingRules straight to the search
      * engine. In this module it does not work that way - the module has no

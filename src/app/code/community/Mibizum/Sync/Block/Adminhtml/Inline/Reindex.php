@@ -24,6 +24,7 @@ class Mibizum_Sync_Block_Adminhtml_Inline_Reindex
             'full_reindex_url' => $u->getUrl('adminhtml/mibizum_sync_reindex/full'),
             'drain_queue_url'  => $u->getUrl('adminhtml/mibizum_sync_reindex/drain'),
             'stats_url'        => $u->getUrl('adminhtml/mibizum_sync_reindex/stats'),
+            'progress_url'     => $u->getUrl('adminhtml/mibizum_sync_reindex/progress'),
         );
     }
 }

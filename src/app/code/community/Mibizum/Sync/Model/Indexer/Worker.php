@@ -157,7 +157,11 @@ class Mibizum_Sync_Model_Indexer_Worker
             $queueIds[] = (int) $e['queue_id'];
             $sku = isset($e['sku']) ? trim((string) $e['sku']) : '';
             if ($sku !== '') {
-                $skus[] = $sku;
+                // Documents are keyed by the SANITIZED SKU (see
+                // ProductMapper::sanitizeDocId — Meili rejects accents/special
+                // chars). Delete by the same transform or the DELETE would miss
+                // the document for SKUs that were normalized at index time.
+                $skus[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku);
             }
         }
 

@@ -74,7 +74,12 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         if ($sku === '') return null;
 
         $doc = array(
-            'id'           => $sku,
+            // Meilisearch document ids only allow [A-Za-z0-9_-]; a raw SKU with an
+            // accent (Ñ, á, ç…) is rejected by the engine AND fails the entire
+            // batch it travels in, silently dropping the ~50 OTHER products that
+            // shared that batch. We sanitize the id; the original SKU is kept in
+            // the `sku` field for display and click attribution.
+            'id'           => self::sanitizeDocId($sku),
             // Document type discriminator - lets the tenant index mix products
             // with other types (ingredients, posts, etc.) in the future.
             'doc_type'     => 'product',
@@ -139,6 +144,18 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         $attributeBadges = $this->_getAttributeBadgesForProduct($product);
         if (!empty($attributeBadges)) {
             $doc['attribute_badges'] = $attributeBadges;
+        }
+
+        // System badges (stock_out / stock_low / in_offer / new / featured):
+        // resolved per product from its live state (stock, special price, news
+        // dates, featured flag) + the merchant's visual overrides, and published
+        // in the generic `_badges` array. The SDK already renders that array with
+        // full visuals (icon_svg/icon_url, shape, display_mode, position), so we
+        // do NOT need any client change — only that the icons be SVG/URL, since
+        // FontAwesome classes cannot resolve inside the widget's shadow DOM.
+        $systemBadges = $this->_getSystemBadgesForProduct($product);
+        if (!empty($systemBadges)) {
+            $doc['_badges'] = $systemBadges;
         }
 
         // Available formats (product children if grouped/configurable). Each
@@ -378,6 +395,126 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         return $best;
     }
 
+    /**
+     * Resolves the system badges (stock_out / stock_low / in_offer / new /
+     * featured) that apply to a product. Combines the BEHAVIORAL config
+     * (enabled/label/threshold/days, getBadgesConfig) with the VISUAL overrides
+     * (color/shape/icon/position, getSystemBadgesVisualByKind) and the product's
+     * live state. Returns badge blobs in the same self-contained shape the SDK
+     * consumes for nature/attribute badges, sorted by sort_priority ASC (the
+     * lowest wins its corner, since the SDK de-duplicates by position).
+     *
+     * stock_out and stock_low are mutually exclusive (a product is either out of
+     * stock or low, never both); in_offer/new/featured can stack.
+     *
+     * @return array  list of badge blobs, or [] when none apply / master off.
+     */
+    protected function _getSystemBadgesForProduct($product)
+    {
+        $helper = Mage::helper('mibizum_sync');
+        $cfg    = $helper->getBadgesConfig();              // gated by the master toggle
+        $visual = $helper->getSystemBadgesVisualByKind();
+        if (empty($visual)) {
+            return array();
+        }
+
+        $inStock = $this->_isInStock($product);
+        $qty     = $this->_getStockQty($product);
+
+        // kind => label, for the kinds that apply to THIS product.
+        $applies = array();
+
+        // "Out of stock" is driven ONLY by the authoritative is_in_stock flag,
+        // NEVER by qty. Many shops do not track per-unit stock, so plenty of
+        // perfectly AVAILABLE products sit at qty=0 with is_in_stock=1; keying
+        // the badge off qty<=0 would wrongly stamp "Out of stock" on all of them.
+        if (!$inStock) {
+            if (!empty($cfg['out_of_stock']['enabled'])) {
+                $applies['stock_out'] = $cfg['out_of_stock']['label'];
+            }
+        } else {
+            // Low stock: only when the qty is actually tracked (> 0) and at or
+            // below the threshold. The `$qty > 0` guard is essential — without it
+            // the many available qty=0 products would all flip to "Last units".
+            $threshold = isset($cfg['low_stock']['threshold']) ? (float) $cfg['low_stock']['threshold'] : 0.0;
+            if (!empty($cfg['low_stock']['enabled']) && $threshold > 0 && $qty > 0 && $qty <= $threshold) {
+                $applies['stock_low'] = $cfg['low_stock']['label'];
+            }
+        }
+
+        if (!empty($cfg['in_offer']['enabled']) && $this->_isInOffer($product)) {
+            $applies['in_offer'] = $cfg['in_offer']['label'];
+        }
+
+        if (!empty($cfg['new']['enabled']) && $this->_isNew($product, (int) $cfg['new']['days'])) {
+            $applies['new'] = $cfg['new']['label'];
+        }
+
+        if (!empty($cfg['featured']['enabled']) && (bool) $product->getData('featured')) {
+            $applies['featured'] = $cfg['featured']['label'];
+        }
+
+        $badges = array();
+        foreach ($applies as $kind => $label) {
+            if (!isset($visual[$kind])) {
+                continue;
+            }
+            $v = $visual[$kind];
+            $badges[] = array(
+                'label'          => (string) $label,
+                'color_hex'      => $v['color_hex'],
+                'text_color_hex' => $v['text_color_hex'],
+                'icon_svg'       => $v['icon_svg'],
+                'icon_url'       => $v['icon_url'],
+                'icon_fa_class'  => $v['icon_fa_class'],
+                'display_mode'   => $v['display_mode'],
+                'position'       => $v['position'],
+                'shape'          => $v['shape'],
+                'sort_priority'  => $v['sort_priority'],
+            );
+        }
+
+        // Lowest sort_priority first: it wins its corner when the SDK collapses
+        // two badges to the same position.
+        usort($badges, function ($a, $b) {
+            return $a['sort_priority'] - $b['sort_priority'];
+        });
+
+        return $badges;
+    }
+
+    /**
+     * Whether a product counts as "new". Prefers the explicit Magento news
+     * window (news_from_date / news_to_date) when set; otherwise falls back to
+     * "created within the last $days days".
+     */
+    protected function _isNew($product, $days)
+    {
+        $now = time();
+
+        $from = $product->getNewsFromDate();
+        if ($from) {
+            $fromTs = strtotime($from);
+            $to     = $product->getNewsToDate();
+            $toTs   = $to ? strtotime($to) : null;
+            if ($fromTs && $fromTs <= $now && ($toTs === null || $toTs >= $now)) {
+                return true;
+            }
+        }
+
+        if ($days > 0) {
+            $created = $product->getCreatedAt();
+            if ($created) {
+                $createdTs = strtotime($created);
+                if ($createdTs && $createdTs >= ($now - $days * 86400)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -591,6 +728,45 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
             return false;
         }
         return true;
+    }
+
+    /**
+     * Sanitizes a SKU into a valid Meilisearch document id.
+     *
+     * Meilisearch only accepts ids matching `^[A-Za-z0-9_-]{1,511}$`. A SKU with
+     * an accent ("AES-LAVESPAÑA") or any other character is rejected with
+     * `invalid_document_id`, AND — crucially — that failure aborts the WHOLE
+     * batch it travels in, so ~50 other valid products are silently dropped from
+     * the index on every reindex. We transliterate common Latin accents to ASCII
+     * and replace any remaining invalid character with '-'. The ORIGINAL SKU is
+     * preserved in the document's `sku` field for display/click attribution; only
+     * the engine primary key is normalized.
+     *
+     * Deterministic and idempotent: a SKU already in the allowed charset is
+     * returned unchanged, so re-indexing does not orphan existing documents.
+     *
+     * @param  string $sku
+     * @return string  a non-empty id within Meili's allowed charset
+     */
+    public static function sanitizeDocId($sku)
+    {
+        $map = array(
+            'á'=>'a','à'=>'a','ä'=>'a','â'=>'a','ã'=>'a','å'=>'a',
+            'Á'=>'A','À'=>'A','Ä'=>'A','Â'=>'A','Ã'=>'A','Å'=>'A',
+            'é'=>'e','è'=>'e','ë'=>'e','ê'=>'e','É'=>'E','È'=>'E','Ë'=>'E','Ê'=>'E',
+            'í'=>'i','ì'=>'i','ï'=>'i','î'=>'i','Í'=>'I','Ì'=>'I','Ï'=>'I','Î'=>'I',
+            'ó'=>'o','ò'=>'o','ö'=>'o','ô'=>'o','õ'=>'o','Ó'=>'O','Ò'=>'O','Ö'=>'O','Ô'=>'O','Õ'=>'O',
+            'ú'=>'u','ù'=>'u','ü'=>'u','û'=>'u','Ú'=>'U','Ù'=>'U','Ü'=>'U','Û'=>'U',
+            'ñ'=>'n','Ñ'=>'N','ç'=>'c','Ç'=>'C','ý'=>'y','ÿ'=>'y','Ý'=>'Y',
+        );
+        $s = strtr((string) $sku, $map);
+        $s = preg_replace('/[^A-Za-z0-9_-]/', '-', $s);
+        $s = preg_replace('/-+/', '-', $s);
+        $s = trim($s, '-');
+        if ($s === '') {
+            $s = 'p';
+        }
+        return substr($s, 0, 511);
     }
 
     protected function _round($value, $decimals = 2)
