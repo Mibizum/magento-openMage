@@ -35,6 +35,26 @@
 class Mibizum_Sync_Model_Observer
 {
     /**
+     * controller_front_init_routers: register the clean-URL router for the
+     * Smart Item (ingredient) ficha `/{url_prefix}/{slug}`. Defensive: never
+     * breaks frontend init if anything is off (the router itself is also a
+     * no-op when the ficha feature is disabled).
+     *
+     * @param Varien_Event_Observer $observer
+     */
+    public function initControllerRouters(Varien_Event_Observer $observer)
+    {
+        try {
+            $front = $observer->getEvent()->getFront();
+            if ($front) {
+                $front->addRouter('mibizum_sync_ingredient', new Mibizum_Sync_Controller_IngredientRouter());
+            }
+        } catch (Exception $e) {
+            // Never break the storefront because of the ingredient router.
+        }
+    }
+
+    /**
      * Product saved: enqueue its reindex.
      *
      * @param Varien_Event_Observer $observer
