@@ -312,3 +312,8 @@ Se o seu tema usa uma caixa de busca personalizada, informe aqui o seletor exato
 "Connection saved.","Conexão salva."
 "Widget enabled.","Widget ativado."
 "Unknown wizard state.","Estado do assistente desconhecido."
+"Indexing…","Indexando…"
+"Reindex complete: %s product(s) indexed.","Reindexação concluída: %s produto(s) indexado(s)."
+"Reindex finished with %s error(s). Check the log.","Reindexação concluída com %s erro(s). Verifique o log."
+"Reindex started: %s product(s) queued.","Reindexação iniciada: %s produto(s) na fila."
+"Full reindex completed. Check the mibizum_sync.log log for details.","Reindexação completa concluída. Verifique o log mibizum_sync.log."

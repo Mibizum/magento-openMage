@@ -39,6 +39,12 @@ class Mibizum_Sync_Block_Adminhtml_Reindex extends Mage_Adminhtml_Block_Template
         return $override !== null && $override !== '' ? $override : $this->getUrl('*/*/stats');
     }
 
+    public function getProgressUrl()
+    {
+        $override = $this->getData('progress_url');
+        return $override !== null && $override !== '' ? $override : $this->getUrl('*/*/progress');
+    }
+
     /**
      * @return bool Debug mode (if active, the raw status is shown).
      */

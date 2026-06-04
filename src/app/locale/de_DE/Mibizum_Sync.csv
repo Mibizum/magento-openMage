@@ -312,3 +312,8 @@ Wenn dein Theme ein benutzerdefiniertes Suchfeld verwendet, gib hier den genauen
 "Connection saved.","Verbindung gespeichert."
 "Widget enabled.","Widget aktiviert."
 "Unknown wizard state.","Unbekannter Assistentenstatus."
+"Indexing…","Indexierung läuft…"
+"Reindex complete: %s product(s) indexed.","Reindexierung abgeschlossen: %s Produkt(e) indexiert."
+"Reindex finished with %s error(s). Check the log.","Reindexierung mit %s Fehler(n) beendet. Prüfe das Log."
+"Reindex started: %s product(s) queued.","Reindexierung gestartet: %s Produkt(e) in der Warteschlange."
+"Full reindex completed. Check the mibizum_sync.log log for details.","Vollständige Reindexierung abgeschlossen. Details im Log mibizum_sync.log."

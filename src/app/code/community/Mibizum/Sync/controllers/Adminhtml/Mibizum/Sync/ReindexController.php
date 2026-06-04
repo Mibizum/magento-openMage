@@ -75,27 +75,125 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
         return false;
     }
 
-    /** Enqueue all products and drain the queue. Blocking (may take a while). */
+    /** Emit a JSON body and stop (helper for the AJAX endpoints). */
+    protected function _emitJson(array $payload)
+    {
+        $this->getResponse()
+            ->setHeader('Content-Type', 'application/json; charset=UTF-8', true)
+            ->setBody(json_encode($payload, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Start a full reindex.
+     *
+     *  - AJAX (the on-screen console): ENQUEUE only and return {total} fast. The
+     *    console then drains in small batches via progressAction polls, showing a
+     *    live counter. Buttons stay disabled until it finishes.
+     *  - Navigation (no JS): falls back to the classic blocking full reindex so
+     *    the action still works without JavaScript.
+     */
     public function fullAction()
     {
         if (!$this->_guardWrite()) {
             return;
         }
-        $ok  = false;
-        $msg = '';
-        try {
-            Mage::getModel('mibizum_sync/scheduler')->fullReindex('manual');
-            $ok  = true;
-            $msg = $this->__('Full reindex launched. Check the mibizum_sync.log log for details.');
-            Mage::getSingleton('adminhtml/session')->addSuccess($msg);
-        } catch (Exception $e) {
-            $msg = $e->getMessage();
-            Mage::getSingleton('adminhtml/session')->addError($msg);
-        }
-        if ($this->_respondAjaxIfApplicable($ok, $msg)) {
+
+        // No-JS fallback: synchronous full reindex (classic behavior).
+        if (!$this->getRequest()->isXmlHttpRequest()) {
+            try {
+                Mage::getModel('mibizum_sync/scheduler')->fullReindex('manual');
+                Mage::getSingleton('adminhtml/session')->addSuccess(
+                    $this->__('Full reindex completed. Check the mibizum_sync.log log for details.')
+                );
+            } catch (Exception $e) {
+                Mage::getSingleton('adminhtml/session')->addError($e->getMessage());
+            }
+            $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
             return;
         }
-        $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+
+        // AJAX: enqueue, then let the console drive the drain with live progress.
+        $ok = false; $total = 0; $msg = '';
+        try {
+            $total = (int) Mage::getModel('mibizum_sync/scheduler')->enqueueFullReindex();
+            $sess  = Mage::getSingleton('adminhtml/session');
+            $sess->setMibizumReindexTotal($total);
+            $sess->setMibizumReindexFailed(0);
+            // Mark "running" so a mid-reindex page reload resumes the progress view.
+            $cfg = Mage::getConfig();
+            $cfg->saveConfig('mibizum_sync/reindex/last_full_status', 'running');
+            Mage::app()->getCacheInstance()->cleanType('config');
+            $ok  = true;
+            $msg = $this->__('Reindex started: %s product(s) queued.', $total);
+        } catch (Exception $e) {
+            $msg = $e->getMessage();
+        }
+        $this->_emitJson(array('success' => $ok, 'total' => $total, 'message' => $msg));
+    }
+
+    /**
+     * Drains ONE small batch and reports live progress for the on-screen console.
+     * Called once per second while a reindex runs. State-changing (drains), so it
+     * requires POST + form_key like the other write actions.
+     */
+    public function progressAction()
+    {
+        if (!$this->_guardWrite()) {
+            return;
+        }
+
+        $sess = Mage::getSingleton('adminhtml/session');
+        try {
+            /** @var Mibizum_Sync_Model_Indexer_Worker $worker */
+            $worker = Mage::getSingleton('mibizum_sync/indexer_worker');
+            // Small batch so each poll returns in ~1s and the counter moves live.
+            $worker->setBatchSize(120)->setPushChunk(50);
+            $totals = $worker->drainQueue(1);
+
+            $failed = (int) $sess->getMibizumReindexFailed()
+                    + (isset($totals['failed']) ? (int) $totals['failed'] : 0);
+            $sess->setMibizumReindexFailed($failed);
+
+            $qstats  = Mage::getSingleton('mibizum_sync/indexer_queue')->getStats();
+            $pending = isset($qstats['pending']) ? (int) $qstats['pending'] : 0;
+            $locked  = isset($qstats['locked'])  ? (int) $qstats['locked']  : 0;
+            $running = ($pending + $locked) > 0;
+
+            $indexed = null;
+            try {
+                $st = Mage::getModel('mibizum_sync/adapter_mibizum')->getStats();
+                $indexed = isset($st['numberOfDocuments']) ? (int) $st['numberOfDocuments'] : null;
+            } catch (Exception $e) {
+                $indexed = null;
+            }
+
+            $total        = (int) $sess->getMibizumReindexTotal();
+            $justFinished = false;
+            if (!$running) {
+                $status = $failed > 0 ? 'partial' : 'success';
+                $cfg = Mage::getConfig();
+                $cfg->saveConfig('mibizum_sync/reindex/last_full_at', gmdate('c'));
+                $cfg->saveConfig('mibizum_sync/reindex/last_full_status', $status);
+                Mage::app()->getCacheInstance()->cleanType('config');
+                $sess->unsMibizumReindexTotal();
+                $sess->unsMibizumReindexFailed();
+                $justFinished = true;
+            }
+
+            $this->_emitJson(array(
+                'success'      => true,
+                'running'      => $running,
+                'total'        => $total,
+                'pending'      => $pending,
+                'locked'       => $locked,
+                'done'         => $total > 0 ? max(0, $total - $pending) : null,
+                'indexed'      => $indexed,
+                'failed'       => $failed,
+                'justFinished' => $justFinished,
+            ));
+        } catch (Exception $e) {
+            $this->_emitJson(array('success' => false, 'message' => $e->getMessage()));
+        }
     }
 
     /** Only drains the pending queue (does not enqueue new ones). */

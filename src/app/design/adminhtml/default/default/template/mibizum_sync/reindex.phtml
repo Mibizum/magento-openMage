@@ -15,6 +15,11 @@ $debug = $this->isDebugMode();
 $qPending = isset($queue['pending']) ? (int) $queue['pending'] : 0;
 $qLocked  = isset($queue['locked'])  ? (int) $queue['locked']  : 0;
 
+// Resume the live progress view when the page is loaded WHILE a reindex is
+// running (status flagged 'running', or there are queued/in-flight items): the
+// console re-attaches to the drain instead of looking idle.
+$resumeRunning = ($last['status'] === 'running') || ($qPending + $qLocked > 0);
+
 $statusMap = array(
     'success' => array('successful',   '#3c763d', '#dff0d8'),
     'partial' => array('with errors',  '#8a6d3b', '#fcf8e3'),
@@ -25,6 +30,24 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
 <div class="mibizum-reindex" style="margin: 6px 0 4px;">
 
     <div id="mibizum_reindex_msg" style="display:none; margin-bottom:12px; padding:10px 14px; border-radius:4px; font-weight:600;"></div>
+
+    <style type="text/css">
+        @keyframes mbz_spin { to { transform: rotate(360deg); } }
+        #mibizum_reindex_progress .mbz-spin {
+            display:inline-block; width:18px; height:18px; box-sizing:border-box;
+            border:3px solid #d3e2f0; border-top-color:#4a90d9; border-radius:50%;
+            animation: mbz_spin .8s linear infinite; vertical-align:middle;
+        }
+    </style>
+    <div id="mibizum_reindex_progress" style="display:none; margin:4px 0 14px; max-width:620px; padding:12px 14px; border:1px solid #d6e3ef; background:#f3f8fd; border-radius:4px;">
+        <div style="display:flex; align-items:center;">
+            <span class="mbz-spin"></span>
+            <span id="mibizum_reindex_progress_label" style="margin-left:10px; font-weight:600; color:#2a5d8f;"><?php echo $this->__('Indexing…'); ?></span>
+        </div>
+        <div style="height:8px; background:#e3edf6; border-radius:5px; margin-top:10px; overflow:hidden;">
+            <div id="mibizum_reindex_bar" style="height:100%; width:0%; background:#4a90d9; transition:width .35s ease;"></div>
+        </div>
+    </div>
 
     <table cellspacing="0" class="mibizum-reindex-status" style="width:100%; max-width:620px; border-collapse:collapse;">
         <tbody>
@@ -39,9 +62,7 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
                     <?php else: ?>
                         <span style="color:#999;"><?php echo $this->__('Never'); ?></span>
                     <?php endif; ?>
-                    <button type="button" class="scalable mibizum-reindex-btn" style="margin-left:14px; font-weight:normal;"
-                            data-mibizum-url="<?php echo $this->getFullReindexUrl(); ?>"
-                            data-mibizum-reload="1"
+                    <button type="button" id="mibizum_reindex_full" class="scalable" style="margin-left:14px; font-weight:normal;"
                             data-mibizum-confirm="<?php echo Mage::helper('core')->quoteEscape($this->__('Reindexing rebuilds the entire search index from scratch. It is only needed in exceptional cases (if you suspect something is off): the system keeps the index up to date automatically. It may take several minutes. Continue?')); ?>"
                             title="<?php echo Mage::helper('core')->quoteEscape($this->__('Rebuilds the entire index from scratch. Takes several minutes.')); ?>">
                         <span><?php echo $this->__('Reindex'); ?></span>
@@ -66,7 +87,7 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
                     <button type="button" id="mibizum_reindex_refresh" class="scalable" style="margin-left:14px; font-weight:normal;">
                         <span><?php echo $this->__('Refresh status'); ?></span>
                     </button>
-                    <button type="button" class="scalable mibizum-reindex-btn" style="margin-left:6px; font-weight:normal;"
+                    <button type="button" id="mibizum_reindex_drain" class="scalable mibizum-reindex-btn" style="margin-left:6px; font-weight:normal;"
                             data-mibizum-url="<?php echo $this->getDrainQueueUrl(); ?>"
                             data-mibizum-reload="0"
                             data-mibizum-confirm="<?php echo Mage::helper('core')->quoteEscape($this->__('{pending} product(s) with pending changes will be processed and updated in the search index. Proceed?')); ?>"
@@ -132,9 +153,25 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
 <script type="text/javascript">
 //<![CDATA[
 (function () {
-    var STATS_URL = <?php echo json_encode($this->getStatsUrl()); ?>;
-    var FORM_KEY  = <?php echo json_encode(Mage::getSingleton('core/session')->getFormKey()); ?>;
-    var DEBUG     = <?php echo $debug ? 'true' : 'false'; ?>;
+    var STATS_URL    = <?php echo json_encode($this->getStatsUrl()); ?>;
+    var FULL_URL     = <?php echo json_encode($this->getFullReindexUrl()); ?>;
+    var PROGRESS_URL = <?php echo json_encode($this->getProgressUrl()); ?>;
+    var FORM_KEY     = <?php echo json_encode(Mage::getSingleton('core/session')->getFormKey()); ?>;
+    var DEBUG        = <?php echo $debug ? 'true' : 'false'; ?>;
+    var RESUME       = <?php echo $resumeRunning ? 'true' : 'false'; ?>;
+
+    var T = {
+        indexing:   <?php echo json_encode($this->__('Indexing…')); ?>,
+        pending:    <?php echo json_encode($this->__('pending')); ?>,
+        done:       <?php echo json_encode($this->__('Reindex complete: %s product(s) indexed.')); ?>,
+        doneErrors: <?php echo json_encode($this->__('Reindex finished with %s error(s). Check the log.')); ?>,
+        httpErr:    <?php echo json_encode($this->__('HTTP error')); ?>,
+        genErr:     <?php echo json_encode($this->__('Error.')); ?>
+    };
+
+    var reindexTotal = 0;     // products queued for the current run
+    var polling      = false; // a progress loop is active
+    var failStreak   = 0;     // consecutive transient poll failures
 
     function $id(id) { return document.getElementById(id); }
 
@@ -236,14 +273,155 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
         });
     }
 
+    // ---- live progress (full reindex) ------------------------------------
+
+    // Disable/enable Reindex + Process pending + Refresh together, so the
+    // merchant cannot launch a second run while one is in flight.
+    function setControlsDisabled(disabled) {
+        ['mibizum_reindex_full', 'mibizum_reindex_drain', 'mibizum_reindex_refresh'].forEach(function (id) {
+            var b = $id(id);
+            if (!b) { return; }
+            b.disabled = disabled;
+            b.style.opacity = disabled ? '0.5' : '';
+            b.style.cursor  = disabled ? 'not-allowed' : '';
+        });
+    }
+
+    function showProgress(show) {
+        var p = $id('mibizum_reindex_progress');
+        if (p) { p.style.display = show ? 'block' : 'none'; }
+    }
+
+    function setProgress(done, total, pending) {
+        var lbl = $id('mibizum_reindex_progress_label');
+        var bar = $id('mibizum_reindex_bar');
+        if (total > 0) {
+            var pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+            if (lbl) { lbl.textContent = T.indexing + ' ' + done.toLocaleString('en-US') + ' / ' + total.toLocaleString('en-US') + ' (' + pct + '%)'; }
+            if (bar) { bar.style.width = pct + '%'; }
+        } else {
+            if (lbl) { lbl.textContent = T.indexing + ' (' + pending + ' ' + T.pending + ')'; }
+            if (bar) { bar.style.width = '45%'; }
+        }
+    }
+
+    function endProgress() {
+        polling = false;
+        showProgress(false);
+        setControlsDisabled(false);
+    }
+
+    // Click "Reindex": confirm, lock the controls, enqueue, then poll the drain.
+    function startReindex() {
+        var btn = $id('mibizum_reindex_full');
+        if (btn && btn.disabled) { return; }
+        var confirmMsg = btn ? btn.getAttribute('data-mibizum-confirm') : '';
+        if (confirmMsg && !window.confirm(confirmMsg)) { return; }
+
+        setControlsDisabled(true);
+        showProgress(true);
+        reindexTotal = 0;
+        setProgress(0, 0, 0);
+
+        new Ajax.Request(FULL_URL, {
+            method: 'post',
+            parameters: { form_key: FORM_KEY },
+            requestHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
+            onSuccess: function (resp) {
+                var d = null;
+                try { d = resp.responseJSON || JSON.parse(resp.responseText); } catch (e) {}
+                if (!d || !d.success) { showMsg(d && d.message ? d.message : T.genErr, false); endProgress(); return; }
+                reindexTotal = Number(d.total || 0);
+                setProgress(0, reindexTotal, reindexTotal);
+                pollProgress();
+            },
+            onFailure: function (resp) {
+                showMsg(T.httpErr + ' ' + (resp ? resp.status : '?') + '.', false);
+                endProgress();
+            }
+        });
+    }
+
+    // Poll loop: each tick drains a small batch server-side and reports counts.
+    function pollProgress() {
+        if (polling) { return; }
+        polling = true;
+        failStreak = 0;
+        (function tick() {
+            new Ajax.Request(PROGRESS_URL, {
+                method: 'post',
+                parameters: { form_key: FORM_KEY },
+                requestHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
+                onSuccess: function (resp) {
+                    failStreak = 0;
+                    var d = null;
+                    try { d = resp.responseJSON || JSON.parse(resp.responseText); } catch (e) {}
+                    if (!d || !d.success) { showMsg(d && d.message ? d.message : T.genErr, false); endProgress(); return; }
+
+                    var total = Number(d.total || reindexTotal || 0);
+                    if (total > reindexTotal) { reindexTotal = total; }
+                    var pending = Number(d.pending || 0);
+                    var done = (d.done !== null && typeof d.done !== 'undefined')
+                        ? Number(d.done)
+                        : (reindexTotal ? Math.max(0, reindexTotal - pending) : 0);
+
+                    if (d.indexed !== null && typeof d.indexed !== 'undefined') {
+                        var dc = $id('mibizum_reindex_docs');
+                        if (dc) { dc.textContent = Number(d.indexed).toLocaleString('en-US'); }
+                    }
+                    var pEl = $id('mibizum_reindex_pending');
+                    if (pEl) { pEl.textContent = pending; }
+                    setProgress(done, reindexTotal, pending);
+
+                    if (d.running) {
+                        setTimeout(tick, 900); // ~1 update/second
+                    } else {
+                        endProgress();
+                        var failed = Number(d.failed || 0);
+                        var finalTotal = reindexTotal || done;
+                        if (failed > 0) {
+                            showMsg(T.doneErrors.replace('%s', failed), false);
+                        } else {
+                            showMsg(T.done.replace('%s', finalTotal.toLocaleString('en-US')), true);
+                        }
+                        // Reload so the "Last full reindex" badge + counts refresh.
+                        setTimeout(function () { window.location.reload(); }, 2600);
+                    }
+                },
+                onFailure: function (resp) {
+                    failStreak++;
+                    if (failStreak <= 5) {
+                        setTimeout(tick, 1600); // transient (slow batch / blip): retry
+                    } else {
+                        showMsg(T.httpErr + ' ' + (resp ? resp.status : '?') + '.', false);
+                        endProgress();
+                    }
+                }
+            });
+        })();
+    }
+
     document.observe('dom:loaded', function () {
+        // Process pending (and any other generic action buttons).
         var btns = document.querySelectorAll('.mibizum-reindex-btn');
         for (var i = 0; i < btns.length; i++) {
             (function (b) { b.addEventListener('click', function () { runAction(b); }); })(btns[i]);
         }
+        // Reindex -> live, progress-tracked.
+        var full = $id('mibizum_reindex_full');
+        if (full) { full.addEventListener('click', function () { startReindex(); }); }
         var r = $id('mibizum_reindex_refresh');
         if (r) { r.addEventListener('click', function () { refreshStats(); }); }
         if (DEBUG) { refreshStats(); }
+
+        // The page was loaded mid-reindex (e.g. the merchant refreshed): re-attach
+        // to the running drain instead of looking idle.
+        if (RESUME) {
+            setControlsDisabled(true);
+            showProgress(true);
+            setProgress(0, 0, <?php echo (int) ($qPending + $qLocked); ?>);
+            pollProgress();
+        }
     });
 })();
 //]]>

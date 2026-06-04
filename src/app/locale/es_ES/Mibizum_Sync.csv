@@ -312,3 +312,8 @@ Si tu tema usa un buscador personalizado, ponle aquí el selector exacto, por ej
 "Connection saved.","Conexión guardada."
 "Widget enabled.","Widget activado."
 "Unknown wizard state.","Estado del asistente desconocido."
+"Indexing…","Indexando…"
+"Reindex complete: %s product(s) indexed.","Reindex completado: %s producto(s) indexado(s)."
+"Reindex finished with %s error(s). Check the log.","Reindex finalizado con %s error(es). Revisa el log."
+"Reindex started: %s product(s) queued.","Reindex iniciado: %s producto(s) en cola."
+"Full reindex completed. Check the mibizum_sync.log log for details.","Reindex completo finalizado. Revisa el log mibizum_sync.log para más detalles."
