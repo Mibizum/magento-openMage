@@ -424,13 +424,20 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         // kind => label, for the kinds that apply to THIS product.
         $applies = array();
 
-        if (!$inStock || $qty <= 0) {
+        // "Out of stock" is driven ONLY by the authoritative is_in_stock flag,
+        // NEVER by qty. Many shops do not track per-unit stock, so plenty of
+        // perfectly AVAILABLE products sit at qty=0 with is_in_stock=1; keying
+        // the badge off qty<=0 would wrongly stamp "Out of stock" on all of them.
+        if (!$inStock) {
             if (!empty($cfg['out_of_stock']['enabled'])) {
                 $applies['stock_out'] = $cfg['out_of_stock']['label'];
             }
         } else {
+            // Low stock: only when the qty is actually tracked (> 0) and at or
+            // below the threshold. The `$qty > 0` guard is essential — without it
+            // the many available qty=0 products would all flip to "Last units".
             $threshold = isset($cfg['low_stock']['threshold']) ? (float) $cfg['low_stock']['threshold'] : 0.0;
-            if (!empty($cfg['low_stock']['enabled']) && $threshold > 0 && $qty <= $threshold) {
+            if (!empty($cfg['low_stock']['enabled']) && $threshold > 0 && $qty > 0 && $qty <= $threshold) {
                 $applies['stock_low'] = $cfg['low_stock']['label'];
             }
         }

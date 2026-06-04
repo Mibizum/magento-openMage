@@ -49,7 +49,11 @@ System badges (out of stock / low stock / on sale / new / featured) now reach th
 search overlay. `ProductMapper` resolves the applicable badges per product from
 its live state + the merchant's visual overrides and publishes them in the
 document's generic `_badges` array, which the SDK renders with full visuals
-(icon, shape, position, display mode). Because the widget renders inside a shadow
+(icon, shape, position, display mode). The **out-of-stock** badge is driven only
+by the authoritative `is_in_stock` flag — never by `qty` — because shops that do
+not track per-unit stock keep many AVAILABLE products at `qty=0` with
+`is_in_stock=1`; the **low-stock** badge requires a tracked `qty > 0` at/below the
+threshold so those qty=0 available products never flip to "Last units". Because the widget renders inside a shadow
 root that isolates CSS, **FontAwesome icon classes cannot resolve there** — the
 `0.6.8 → 0.6.9` upgrade backfills inline-SVG equivalents for the default-iconed
 badges (empty battery / double chevron / gift) when the merchant has not set an
