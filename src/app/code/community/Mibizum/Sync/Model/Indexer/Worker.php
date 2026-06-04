@@ -156,12 +156,13 @@ class Mibizum_Sync_Model_Indexer_Worker
         foreach ($deleteEntries as $e) {
             $queueIds[] = (int) $e['queue_id'];
             $sku = isset($e['sku']) ? trim((string) $e['sku']) : '';
+            $pid = isset($e['product_id']) ? (int) $e['product_id'] : 0;
             if ($sku !== '') {
-                // Documents are keyed by the SANITIZED SKU (see
+                // Documents are keyed by the SANITIZED SKU + entity_id (see
                 // ProductMapper::sanitizeDocId — Meili rejects accents/special
-                // chars). Delete by the same transform or the DELETE would miss
-                // the document for SKUs that were normalized at index time.
-                $skus[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku);
+                // chars, and the entity_id suffix prevents collisions). Delete by
+                // the same transform or the DELETE would miss the document.
+                $skus[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku, $pid);
             }
         }
 
@@ -263,10 +264,11 @@ class Mibizum_Sync_Model_Indexer_Worker
                 $doc = $mapper->map($product);
                 if ($doc === null) {
                     // Not indexable in THIS store-view (visibility/price/website) ->
-                    // ensure it is absent from this destination.
+                    // ensure it is absent from this destination. Delete by the same
+                    // sanitized id (+entity_id) the upsert would have used.
                     $sku = trim((string) $product->getSku());
                     if ($sku !== '') {
-                        $deleteSku[] = $sku;
+                        $deleteSku[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku, (int) $product->getId());
                     }
                     $okCount[$qid]++;
                     continue;

@@ -75,11 +75,13 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
 
         $doc = array(
             // Meilisearch document ids only allow [A-Za-z0-9_-]; a raw SKU with an
-            // accent (Ñ, á, ç…) is rejected by the engine AND fails the entire
-            // batch it travels in, silently dropping the ~50 OTHER products that
-            // shared that batch. We sanitize the id; the original SKU is kept in
-            // the `sku` field for display and click attribution.
-            'id'           => self::sanitizeDocId($sku),
+            // accent (Ñ, á, ç…), space or symbol (* / etc.) is rejected by the
+            // engine AND fails the entire batch it travels in, silently dropping
+            // the ~50 OTHER products that shared that batch. We sanitize the id
+            // and append the entity_id so two SKUs that sanitize to the same
+            // string never collide; the original SKU is kept in the `sku` field
+            // for display and click attribution.
+            'id'           => self::sanitizeDocId($sku, (int) $product->getId()),
             // Document type discriminator - lets the tenant index mix products
             // with other types (ingredients, posts, etc.) in the future.
             'doc_type'     => 'product',
@@ -562,7 +564,17 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
 
     protected function _getImageUrl($product)
     {
+        // Fallback chain: image → small_image → thumbnail. Many stores only
+        // populate small_image (the grid thumbnail) and leave the "base image"
+        // role empty; without this fallback every such product shows up with no
+        // picture in the widget.
         $img = $product->getImage();
+        if (!$img || $img === 'no_selection') {
+            $img = $product->getSmallImage();
+        }
+        if (!$img || $img === 'no_selection') {
+            $img = $product->getThumbnail();
+        }
         if (!$img || $img === 'no_selection') {
             return '';
         }
@@ -748,7 +760,7 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
      * @param  string $sku
      * @return string  a non-empty id within Meili's allowed charset
      */
-    public static function sanitizeDocId($sku)
+    public static function sanitizeDocId($sku, $entityId = 0)
     {
         $map = array(
             'á'=>'a','à'=>'a','ä'=>'a','â'=>'a','ã'=>'a','å'=>'a',
@@ -766,6 +778,22 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         if ($s === '') {
             $s = 'p';
         }
+
+        // Anti-collision suffix: SKUs like "HT01B 51361" and "HT01B*51361" both
+        // sanitize to "HT01B-51361" and would overwrite each other in the index.
+        // Appending the Magento entity_id (unique per product) guarantees a 1:1
+        // mapping. entityId=0 (unknown, e.g. legacy delete with no pid) keeps the
+        // bare sanitized form for backward compatibility.
+        $entityId = (int) $entityId;
+        if ($entityId > 0) {
+            // Cap the sanitized part so the final id stays under Meili's 511-byte
+            // limit even with the suffix.
+            if (strlen($s) > 480) {
+                $s = substr($s, 0, 480);
+            }
+            return $s . '_' . $entityId;
+        }
+
         return substr($s, 0, 511);
     }
 
