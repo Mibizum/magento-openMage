@@ -31,6 +31,31 @@ separately. Code-only; no DB schema change.
 
 ## 0.6.9
 
+### Added — Smart Items (ingredient) public ficha, folded into this module
+
+The public Smart Item ficha (`/ingredientes/{slug}` — e.g. an ingredient page
+with status, description and recommended substitute) now ships **inside
+Mibizum_Sync** instead of a separate `Mibizum_Ingredient` module. This is the
+**thin (Option B)** port: the Mibizum panel remains the single source of truth
+for Smart Items; the module only RENDERS the public ficha, reading from
+`GET /api/v1/smart-items/{slug}` on the SaaS and reusing the module's existing
+Connection config (API URL, public key, data source slug).
+
+- New clean-URL router `Mibizum_Sync_Controller_IngredientRouter`, registered on
+  `controller_front_init_routers`. It runs on every storefront request, so it is
+  fully defensive — returns false fast for any non-ingredient URL and never
+  throws — and is gated by a master toggle (`mibizum_sync/frontend/ingredient_enabled`).
+- `Mibizum_Sync_IndexController::viewAction` renders the ficha;
+  `Mibizum_Sync_Block_Frontend_Ingredient` + `template/mibizum_sync/ingredient/view.phtml`
+  draw it; `Mibizum_Sync_Helper_Ingredient::fetchSmartItem()` fetches + briefly
+  caches the SaaS response. Unknown slugs 404.
+- The URL prefix is configurable (`mibizum_sync/frontend/ingredient_url_prefix`,
+  default `ingredientes`). No DB schema change (Smart Items live in the SaaS DB).
+
+Note: managing Smart Items (create/edit, statuses, substitutes) stays in the
+Mibizum panel — one source of truth that scales across platforms. The full
+Magento admin from the old standalone module is intentionally not bundled.
+
 ### Added — Reindex console with live progress
 
 The admin **Reindex** panel (System → Configuration → Mibizum Sync → General

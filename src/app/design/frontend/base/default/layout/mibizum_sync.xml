@@ -13,4 +13,17 @@
                    template="mibizum_sync/frontend/config.phtml" />
         </reference>
     </default>
+
+    <!-- Smart Item (ingredient) public ficha: /{url_prefix}/{slug}.
+         Handle = routeNodeKey(mibizum_sync_ingredient) + controller(index) + action(view). -->
+    <mibizum_sync_ingredient_index_view>
+        <reference name="root">
+            <action method="setTemplate"><template>page/1column.phtml</template></action>
+        </reference>
+        <reference name="content">
+            <block type="mibizum_sync/frontend_ingredient"
+                   name="mibizum.sync.ingredient.view"
+                   template="mibizum_sync/ingredient/view.phtml" />
+        </reference>
+    </mibizum_sync_ingredient_index_view>
 </layout>
