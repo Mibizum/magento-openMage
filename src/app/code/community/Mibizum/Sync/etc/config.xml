@@ -223,6 +223,19 @@
                     </mibizum_sync_push_settings_to_saas>
                 </observers>
             </admin_system_config_changed_section_mibizum_sync>
+
+            <!-- Register the clean-URL router for the Smart Item (ingredient)
+                 ficha /{url_prefix}/{slug}. Thin port (Option B): the ficha is
+                 part of Mibizum_Sync, no separate Mibizum_Ingredient module. -->
+            <controller_front_init_routers>
+                <observers>
+                    <mibizum_sync_ingredient_router>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>initControllerRouters</method>
+                    </mibizum_sync_ingredient_router>
+                </observers>
+            </controller_front_init_routers>
         </events>
     </global>
 
@@ -231,6 +244,20 @@
     <!-- merchant does not need to edit the Magento theme to enable it.    -->
     <!-- ================================================================ -->
     <frontend>
+        <!-- Route node for the Smart Item (ingredient) ficha. frontName must
+             match the configured url_prefix (default "ingredientes") because the
+             clean-URL router does setModuleName(prefix); the node KEY drives the
+             layout handle (mibizum_sync_ingredient_index_view). -->
+        <routers>
+            <mibizum_sync_ingredient>
+                <use>standard</use>
+                <args>
+                    <module>Mibizum_Sync</module>
+                    <frontName>ingredientes</frontName>
+                </args>
+            </mibizum_sync_ingredient>
+        </routers>
+
         <translate>
             <modules>
                 <Mibizum_Sync>
@@ -370,6 +397,10 @@
                 <feature_flag_param></feature_flag_param>
             </general>
             <frontend>
+                <!-- Smart Item (ingredient) public ficha. Enabled by default; the
+                     router is a no-op when disabled. URL: /{ingredient_url_prefix}/{slug} -->
+                <ingredient_enabled>1</ingredient_enabled>
+                <ingredient_url_prefix>ingredientes</ingredient_url_prefix>
                 <show_category_facets>0</show_category_facets>
                 <title_strip_strings></title_strip_strings>
                 <show_price>1</show_price>
