@@ -266,6 +266,74 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_ReindexController extends Mage_Adminht
         $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
     }
 
+    /** Pause sync for the current store view (queue stays intact). */
+    public function pauseAction()
+    {
+        if (!$this->_guardWrite()) {
+            return;
+        }
+        $storeId = $this->_getStoreViewId();
+        if (!$storeId) {
+            $msg = $this->__('Select a store view to pause sync.');
+            if (!$this->_respondAjaxIfApplicable(false, $msg)) {
+                Mage::getSingleton('adminhtml/session')->addError($msg);
+                $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+            }
+            return;
+        }
+        Mage::helper('mibizum_sync')->setPaused($storeId, true);
+        $msg = $this->__('Sync paused for this store view. The queue is preserved; resume to continue.');
+        Mage::getSingleton('adminhtml/session')->addSuccess($msg);
+        if (!$this->_respondAjaxIfApplicable(true, $msg)) {
+            $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+        }
+    }
+
+    /** Resume sync for the current store view. */
+    public function resumeAction()
+    {
+        if (!$this->_guardWrite()) {
+            return;
+        }
+        $storeId = $this->_getStoreViewId();
+        if (!$storeId) {
+            $msg = $this->__('Select a store view to resume sync.');
+            if (!$this->_respondAjaxIfApplicable(false, $msg)) {
+                Mage::getSingleton('adminhtml/session')->addError($msg);
+                $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+            }
+            return;
+        }
+        Mage::helper('mibizum_sync')->setPaused($storeId, false);
+        $msg = $this->__('Sync resumed for this store view.');
+        Mage::getSingleton('adminhtml/session')->addSuccess($msg);
+        if (!$this->_respondAjaxIfApplicable(true, $msg)) {
+            $this->_redirect('adminhtml/system_config/edit', array('section' => 'mibizum_sync'));
+        }
+    }
+
+    /**
+     * Resolve the store-view id from the request.
+     *
+     * @return int 0 if not in store-view scope.
+     */
+    protected function _getStoreViewId()
+    {
+        $storeId = (int) $this->getRequest()->getParam('store_id');
+        if ($storeId > 0) {
+            return $storeId;
+        }
+        $storeCode = (string) $this->getRequest()->getParam('store');
+        if ($storeCode !== '') {
+            try {
+                return (int) Mage::app()->getStore($storeCode)->getId();
+            } catch (Exception $e) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
     /** JSON endpoint for the on-screen AJAX. */
     public function statsAction()
     {

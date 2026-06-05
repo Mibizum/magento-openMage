@@ -54,6 +54,56 @@ class Mibizum_Sync_Block_Adminhtml_Reindex extends Mage_Adminhtml_Block_Template
     }
 
     /**
+     * Store-view id passed by the Inline container from the config scope URL.
+     * 0 means "not in store-view scope" (default/website).
+     *
+     * @return int
+     */
+    public function getCurrentStoreViewId()
+    {
+        $id = $this->getData('current_store_id');
+        return $id ? (int) $id : 0;
+    }
+
+    /**
+     * Whether the current store-view has its connection fully configured.
+     *
+     * @return bool
+     */
+    public function isCurrentStoreConfigured()
+    {
+        $storeId = $this->getCurrentStoreViewId();
+        if (!$storeId) {
+            return false;
+        }
+        return Mage::helper('mibizum_sync')->isEnabled($storeId);
+    }
+
+    /** @return bool */
+    public function isPaused()
+    {
+        $storeId = $this->getCurrentStoreViewId();
+        if (!$storeId) {
+            return false;
+        }
+        return Mage::helper('mibizum_sync')->isPaused($storeId);
+    }
+
+    /** @return string */
+    public function getPauseUrl()
+    {
+        $v = $this->getData('pause_url');
+        return ($v !== null && $v !== '') ? $v : '';
+    }
+
+    /** @return string */
+    public function getResumeUrl()
+    {
+        $v = $this->getData('resume_url');
+        return ($v !== null && $v !== '') ? $v : '';
+    }
+
+    /**
      * Date and result of the last full reindex.
      *
      * @return array {at: string|null, at_label: string, status: string}

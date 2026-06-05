@@ -75,11 +75,7 @@ class Mibizum_Sync_Model_Scheduler
                 );
             }
 
-            // 1. Enqueue VISIBLE products (excludes configurable children).
-            //    This greatly reduces load: a large catalog can have thousands
-            //    of "simple" children that should NOT be indexed (they are not
-            //    directly visible to the customer, they are only purchased
-            //    through their configurable parent).
+            // 1. Collect visible product IDs.
             $productIds = Mage::getModel('catalog/product')
                 ->getCollection()
                 ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)
@@ -92,17 +88,28 @@ class Mibizum_Sync_Model_Scheduler
                 )
                 ->getAllIds();
 
-            /** @var Mibizum_Sync_Model_Indexer_Queue $queue */
-            $queue = Mage::getSingleton('mibizum_sync/indexer_queue');
-            $enqueued = $queue->enqueueBulkUpsert($productIds, 'full_reindex');
+            $enqueued = count($productIds);
+            $helper->log("fullReindex collected $enqueued visible products");
 
-            $helper->log("fullReindex enqueued $enqueued products");
-
-            // 2. Drain.
             /** @var Mibizum_Sync_Model_Indexer_Worker $worker */
             $worker = Mage::getSingleton('mibizum_sync/indexer_worker');
-            $worker->setBatchSize(200)->setPushChunk(50);
-            $totals = $worker->drainQueue();
+
+            // 2. Try bulk file upload (1 HTTP request per destination instead
+            //    of 60+ that trigger Cloudflare rate limits).
+            $bulkOk = $this->_tryBulkUpload($helper, $worker, $productIds, $totals);
+
+            if (!$bulkOk) {
+                // 3. Fallback: enqueue + drain via HTTP-per-chunk (works for
+                //    small catalogs where Cloudflare won't trigger).
+                $helper->log('fullReindex: bulk upload unavailable, falling back to HTTP-per-chunk', Zend_Log::WARN);
+
+                /** @var Mibizum_Sync_Model_Indexer_Queue $queue */
+                $queue = Mage::getSingleton('mibizum_sync/indexer_queue');
+                $queue->enqueueBulkUpsert($productIds, 'full_reindex');
+
+                $worker->setBatchSize(200)->setPushChunk(50);
+                $totals = $worker->drainQueue();
+            }
 
             if (!empty($totals['failed']) && $totals['failed'] > 0) {
                 $status = 'partial';
@@ -110,9 +117,9 @@ class Mibizum_Sync_Model_Scheduler
 
             $elapsed = round(microtime(true) - $startedAt, 2);
             $helper->log(
-                "fullReindex completed in {$elapsed}s",
+                "fullReindex completed in {$elapsed}s" . ($bulkOk ? ' (bulk upload)' : ' (HTTP fallback)'),
                 Zend_Log::INFO,
-                $totals + array('elapsed_s' => $elapsed)
+                $totals + array('elapsed_s' => $elapsed, 'method' => $bulkOk ? 'bulk' : 'http')
             );
         } catch (Exception $e) {
             $status       = 'failed';
@@ -153,6 +160,124 @@ class Mibizum_Sync_Model_Scheduler
         } catch (Exception $e) {
             $helper->log('fullReindex: could not record the date: ' . $e->getMessage(), Zend_Log::WARN);
         }
+    }
+
+    /**
+     * Attempt bulk file upload for all destinations.
+     *
+     * For each destination (store-view), builds a JSONL.gz file with all mapped
+     * products and uploads it in a single HTTP request. Returns true if ALL
+     * destinations succeeded; false if any failed (caller should fall back to
+     * HTTP-per-chunk).
+     *
+     * @param Mibizum_Sync_Helper_Data               $helper
+     * @param Mibizum_Sync_Model_Indexer_Worker       $worker
+     * @param array                                   $productIds
+     * @param array                                   &$totals
+     * @return bool True if bulk upload succeeded for all destinations.
+     */
+    protected function _tryBulkUpload($helper, $worker, array $productIds, array &$totals)
+    {
+        if (!function_exists('gzopen')) {
+            $helper->log('_tryBulkUpload: gzopen not available (zlib missing), skipping', Zend_Log::WARN);
+            return false;
+        }
+
+        $destinations = array();
+        foreach ($helper->getEnabledStoreViewIds() as $svId) {
+            // Skip paused store-views (queue stays intact for when they resume).
+            if ($helper->isPaused($svId)) {
+                $helper->log('_tryBulkUpload: skipping paused store-view ' . $svId, Zend_Log::INFO);
+                continue;
+            }
+            $sig = $helper->getDestinationSignature($svId);
+            if (!isset($destinations[$sig])) {
+                $destinations[$sig] = array('store' => $svId, 'websites' => array());
+            }
+            $wid = (int) Mage::app()->getStore($svId)->getWebsiteId();
+            $destinations[$sig]['websites'][$wid] = true;
+        }
+
+        if (empty($destinations)) {
+            return false;
+        }
+
+        $allOk        = true;
+        $totalIndexed = 0;
+        $totalErrors  = 0;
+
+        foreach ($destinations as $sig => $dest) {
+            $storeId = $dest['store'];
+
+            $result = $worker->buildBulkFile($productIds, $dest);
+            if ($result === null) {
+                $helper->log(
+                    'fullReindex bulk: no products mapped for destination store=' . $storeId . ', skipping',
+                    Zend_Log::INFO
+                );
+                continue;
+            }
+
+            $filePath = $result['filePath'];
+            $count    = $result['count'];
+            $slug     = $helper->getDataSourceSlug($storeId);
+
+            $client = Mage::getModel('mibizum_sync/adapter_mibizum');
+            try {
+                Mage::app()->setCurrentStore($storeId);
+                $uploadResult = $client->uploadBulkFile($filePath, $slug);
+            } catch (Exception $e) {
+                $helper->log(
+                    'fullReindex bulk upload failed for store=' . $storeId . ': ' . $e->getMessage(),
+                    Zend_Log::ERR
+                );
+                @unlink($filePath);
+                $allOk = false;
+                continue;
+            }
+
+            @unlink($filePath);
+
+            $taskId = isset($uploadResult['taskId']) ? $uploadResult['taskId'] : null;
+            if (!$taskId) {
+                $helper->log('fullReindex bulk: no taskId returned for store=' . $storeId, Zend_Log::ERR);
+                $allOk = false;
+                continue;
+            }
+
+            $helper->log(sprintf(
+                'fullReindex bulk: uploaded %d products for store=%d, taskId=%s, polling...',
+                $count, $storeId, $taskId
+            ), Zend_Log::INFO);
+
+            $pollResult = $worker->waitForBulkUpload($client, $taskId, 600);
+            $pollStatus = isset($pollResult['status']) ? $pollResult['status'] : 'unknown';
+
+            if ($pollStatus === 'done') {
+                $indexed = isset($pollResult['processed']) ? (int) $pollResult['processed'] : 0;
+                $errors  = isset($pollResult['errors'])    ? (int) $pollResult['errors']    : 0;
+                $totalIndexed += $indexed;
+                $totalErrors  += $errors;
+                $helper->log(sprintf(
+                    'fullReindex bulk: store=%d done (indexed=%d, errors=%d)',
+                    $storeId, $indexed, $errors
+                ), Zend_Log::INFO);
+            } else {
+                $helper->log(sprintf(
+                    'fullReindex bulk: store=%d ended with status=%s',
+                    $storeId, $pollStatus
+                ), Zend_Log::WARN);
+                $allOk = false;
+            }
+        }
+
+        if ($allOk || $totalIndexed > 0) {
+            $totals['processed'] = $totalIndexed + $totalErrors;
+            $totals['succeeded'] = $totalIndexed;
+            $totals['failed']    = $totalErrors;
+        }
+
+        return $allOk;
     }
 
     /**

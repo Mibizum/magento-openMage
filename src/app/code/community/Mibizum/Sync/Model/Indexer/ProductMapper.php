@@ -75,12 +75,10 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
 
         $doc = array(
             // Meilisearch document ids only allow [A-Za-z0-9_-]; a raw SKU with an
-            // accent (Ñ, á, ç…), space or symbol (* / etc.) is rejected by the
-            // engine AND fails the entire batch it travels in, silently dropping
-            // the ~50 OTHER products that shared that batch. We sanitize the id
-            // and append the entity_id so two SKUs that sanitize to the same
-            // string never collide; the original SKU is kept in the `sku` field
-            // for display and click attribution.
+            // accent (Ñ, á, ç…) is rejected by the engine AND fails the entire
+            // batch it travels in, silently dropping the ~50 OTHER products that
+            // shared that batch. We sanitize the id; the original SKU is kept in
+            // the `sku` field for display and click attribution.
             'id'           => self::sanitizeDocId($sku, (int) $product->getId()),
             // Document type discriminator - lets the tenant index mix products
             // with other types (ingredients, posts, etc.) in the future.
@@ -758,6 +756,7 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
      * returned unchanged, so re-indexing does not orphan existing documents.
      *
      * @param  string $sku
+     * @param  int    $entityId  Magento entity_id (anti-collision suffix). 0 = omit.
      * @return string  a non-empty id within Meili's allowed charset
      */
     public static function sanitizeDocId($sku, $entityId = 0)
@@ -786,8 +785,6 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
         // bare sanitized form for backward compatibility.
         $entityId = (int) $entityId;
         if ($entityId > 0) {
-            // Cap the sanitized part so the final id stays under Meili's 511-byte
-            // limit even with the suffix.
             if (strlen($s) > 480) {
                 $s = substr($s, 0, 480);
             }

@@ -188,6 +188,118 @@ class Mibizum_Sync_Model_Adapter_Mibizum
     // Internals
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Bulk upload (Cloudflare-safe full reindex)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Upload a gzip-compressed JSONL file for bulk indexing. The backend
+     * processes it asynchronously and returns a taskId for polling.
+     *
+     * This replaces the HTTP-per-chunk pattern that triggers Cloudflare rate
+     * limits during full reindex.
+     *
+     * @param string      $filePath Absolute path to the .jsonl.gz file.
+     * @param string|null $source   Data source slug (multi-store).
+     * @return array {taskId, totalLines, status}
+     * @throws Exception on HTTP != 202, network failure, or missing file.
+     */
+    public function uploadBulkFile($filePath, $source = null)
+    {
+        if (!file_exists($filePath) || !is_readable($filePath)) {
+            throw new Exception('uploadBulkFile: file not found or not readable: ' . $filePath);
+        }
+
+        $helper  = Mage::helper('mibizum_sync');
+        $url     = $helper->getApiUrl() . '/api/v1/ingest/upload';
+        $apiKey  = $helper->getApiKey();
+        $timeout = max(120, $helper->getTimeoutSeconds() * 4);
+
+        if ($apiKey === '') {
+            throw new Exception('Mibizum_Sync: API key not configured');
+        }
+
+        $postFields = array();
+        if ($source) {
+            $postFields['source'] = $source;
+        }
+        if (class_exists('CURLFile')) {
+            $postFields['file'] = new CURLFile($filePath, 'application/gzip', basename($filePath));
+        } else {
+            $postFields['file'] = '@' . $filePath . ';type=application/gzip;filename=' . basename($filePath);
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postFields,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => $timeout,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_HTTPHEADER     => array(
+                'Authorization: Bearer ' . $apiKey,
+                'Accept: application/json',
+                'User-Agent: Mibizum-Sync-Adapter/0.2.0 (Magento 1.x)',
+            ),
+        ));
+
+        $resp     = curl_exec($ch);
+        $code     = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $netError = curl_error($ch);
+        curl_close($ch);
+
+        if ($code === 0) {
+            throw new Exception('uploadBulkFile: network error - ' . ($netError ?: 'unknown'));
+        }
+        if ($code !== 202) {
+            $detail = substr((string) $resp, 0, 300);
+            $json   = json_decode((string) $resp, true);
+            if (is_array($json) && isset($json['error'])) {
+                $detail = $json['error'];
+                if (isset($json['message'])) {
+                    $detail .= ': ' . $json['message'];
+                }
+            }
+            throw new Exception(sprintf('uploadBulkFile: backend responded HTTP %d - %s', $code, $detail));
+        }
+
+        $json = json_decode((string) $resp, true);
+        return array(
+            'taskId'     => isset($json['taskId'])     ? $json['taskId']          : null,
+            'totalLines' => isset($json['totalLines']) ? (int) $json['totalLines'] : 0,
+            'status'     => isset($json['status'])     ? $json['status']           : 'unknown',
+        );
+    }
+
+    /**
+     * Poll the status of a bulk upload task.
+     *
+     * @param string $taskId
+     * @return array {status, processed, total, errors, completedAt, ...}
+     * @throws Exception on network failure.
+     */
+    public function pollBulkUpload($taskId)
+    {
+        $helper = Mage::helper('mibizum_sync');
+        $url    = $helper->getApiUrl() . '/api/v1/ingest/upload/' . rawurlencode($taskId);
+
+        list($code, $body) = $this->_request('GET', $url, null);
+
+        if ($code === 200) {
+            $json = json_decode((string) $body, true);
+            return is_array($json) ? $json : array('status' => 'error', 'message' => 'Invalid response');
+        }
+        if ($code === 404) {
+            return array('status' => 'not_found');
+        }
+        throw new Exception(sprintf('pollBulkUpload: HTTP %d - %s', $code, substr((string) $body, 0, 300)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Internals
+    // -------------------------------------------------------------------------
+
     /**
      * Make an HTTP request. Returns [code, body]. Throws an Exception on a
      * NETWORK error (not on a status code; the caller decides what to do with

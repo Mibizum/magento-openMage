@@ -60,6 +60,14 @@ class Mibizum_Sync_Model_Indexer_Worker
             return $result;
         }
 
+        // Pause: filter out paused store-views. If all destinations are paused
+        // we return without claiming, so the queue stays intact and resumes
+        // where it left off when the merchant unpauses.
+        $destinations = $this->_filterPausedDestinations($helper, $destinations);
+        if (empty($destinations)) {
+            return $result;
+        }
+
         $token = $this->_workerToken();
         $entries = $queue->claimBatch($this->_batchSize, $token);
         if (empty($entries)) {
@@ -148,28 +156,25 @@ class Mibizum_Sync_Model_Indexer_Worker
      */
     protected function _processDeletes($queue, $helper, $destinations, $deleteEntries, array &$result)
     {
-        // Delete by the SKU captured at enqueue time: documents are keyed by SKU,
-        // and the product no longer exists to re-derive it (deleting by entity_id
-        // would be a no-op against the SKU-keyed index).
-        $skus = array();
+        // Delete by the SANITIZED document id rebuilt from sku + product_id.
+        // Documents are keyed by sanitizeDocId(sku, entity_id), and the product
+        // no longer exists. The queue stores both sku and product_id at enqueue
+        // time (onProductDeleteBefore).
+        $docIds = array();
         $queueIds = array();
         foreach ($deleteEntries as $e) {
             $queueIds[] = (int) $e['queue_id'];
             $sku = isset($e['sku']) ? trim((string) $e['sku']) : '';
             $pid = isset($e['product_id']) ? (int) $e['product_id'] : 0;
             if ($sku !== '') {
-                // Documents are keyed by the SANITIZED SKU + entity_id (see
-                // ProductMapper::sanitizeDocId — Meili rejects accents/special
-                // chars, and the entity_id suffix prevents collisions). Delete by
-                // the same transform or the DELETE would miss the document.
-                $skus[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku, $pid);
+                $docIds[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku, $pid);
             }
         }
 
         // Nothing identifiable to delete (e.g. legacy entries enqueued before the
         // sku column existed). They were no-ops before too, so just clear them
         // instead of letting them retry until they hit max_attempts.
-        if (empty($skus)) {
+        if (empty($docIds)) {
             $queue->complete($queueIds);
             $result['deleted'] += count($queueIds);
             $result['succeeded'] += count($queueIds);
@@ -181,7 +186,7 @@ class Mibizum_Sync_Model_Indexer_Worker
             Mage::app()->setCurrentStore($d['store']);
             $client = Mage::getModel('mibizum_sync/adapter_mibizum');
             try {
-                $client->deleteDocumentsByIds('', $skus);
+                $client->deleteDocumentsByIds('', $docIds);
             } catch (Exception $ex) {
                 $allOk = false;
                 $helper->log('Worker delete failed in a destination: ' . $ex->getMessage(), Zend_Log::ERR);
@@ -242,7 +247,7 @@ class Mibizum_Sync_Model_Indexer_Worker
             $docs      = array();   // docs to upsert in this destination
             $docQueue  = array();   // doc id (sanitized SKU) => queue_id
             $docSku    = array();   // doc id => original SKU (for collision diag)
-            $deleteSku = array();   // SKUs to remove from this destination (mapper said skip)
+            $deleteIds = array();   // SANITIZED doc ids to remove (mapper said skip)
 
             foreach ($upsertEntries as $e) {
                 $pid = (int) $e['product_id'];
@@ -265,10 +270,12 @@ class Mibizum_Sync_Model_Indexer_Worker
                 if ($doc === null) {
                     // Not indexable in THIS store-view (visibility/price/website) ->
                     // ensure it is absent from this destination. Delete by the same
-                    // sanitized id (+entity_id) the upsert would have used.
+                    // sanitized id the upsert would have used (raw SKU won't match).
                     $sku = trim((string) $product->getSku());
                     if ($sku !== '') {
-                        $deleteSku[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId($sku, (int) $product->getId());
+                        $deleteIds[] = Mibizum_Sync_Model_Indexer_ProductMapper::sanitizeDocId(
+                            $sku, (int) $product->getId()
+                        );
                     }
                     $okCount[$qid]++;
                     continue;
@@ -300,9 +307,9 @@ class Mibizum_Sync_Model_Indexer_Worker
             }
 
             // Remove the not-indexable ones from this destination (best effort).
-            if (!empty($deleteSku)) {
+            if (!empty($deleteIds)) {
                 try {
-                    $client->deleteDocumentsByIds('', $deleteSku);
+                    $client->deleteDocumentsByIds('', $deleteIds);
                 } catch (Exception $ex) {
                     $helper->log('Worker per-destination delete failed: ' . $ex->getMessage(), Zend_Log::WARN);
                 }
@@ -368,7 +375,17 @@ class Mibizum_Sync_Model_Indexer_Worker
             'deleted'   => 0,
         );
 
+        /** @var Mibizum_Sync_Helper_Data $helper */
+        $helper = Mage::helper('mibizum_sync');
+
         for ($i = 0; $i < $maxBatches; $i++) {
+            // Between batches: if all destinations are now paused, stop
+            // draining so the queue stays intact for when the merchant resumes.
+            if ($this->_allDestinationsPaused($helper)) {
+                $helper->log('drainQueue: all destinations paused, stopping', Zend_Log::INFO);
+                break;
+            }
+
             $r = $this->processBatch();
             $totals['batches']++;
             $totals['processed'] += $r['processed'];
@@ -381,6 +398,172 @@ class Mibizum_Sync_Model_Indexer_Worker
             }
         }
         return $totals;
+    }
+
+    // -------------------------------------------------------------------------
+    // Bulk file generation (Cloudflare-safe full reindex)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a JSONL.gz file with all mapped products for a single destination.
+     *
+     * Instead of sending products via HTTP one chunk at a time (which triggers
+     * Cloudflare rate limits), this method writes them to a local file that is
+     * then uploaded in a single HTTP request.
+     *
+     * @param array $productIds  Array of product entity_ids to process.
+     * @param array $destination {store => int, websites => array<int,bool>}
+     * @return array|null {filePath, count} or null if nothing to index.
+     */
+    public function buildBulkFile(array $productIds, array $destination)
+    {
+        if (empty($productIds)) {
+            return null;
+        }
+
+        /** @var Mibizum_Sync_Model_Indexer_ProductMapper $mapper */
+        $mapper = Mage::getSingleton('mibizum_sync/indexer_productMapper');
+        /** @var Mibizum_Sync_Helper_Data $helper */
+        $helper = Mage::helper('mibizum_sync');
+
+        $dir = Mage::getBaseDir('var') . DS . 'mibizum';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        $storeId = $destination['store'];
+        $sig     = md5($storeId . '_' . implode('_', array_keys($destination['websites'])));
+        $path    = $dir . DS . $sig . '.jsonl.gz';
+
+        if (!function_exists('gzopen')) {
+            $helper->log('buildBulkFile: gzopen not available (zlib missing)', Zend_Log::ERR);
+            return null;
+        }
+
+        $gz = gzopen($path, 'wb9');
+        if (!$gz) {
+            $helper->log('buildBulkFile: could not open ' . $path, Zend_Log::ERR);
+            return null;
+        }
+
+        $prevStore = Mage::app()->getStore()->getId();
+        Mage::app()->setCurrentStore($storeId);
+
+        $count  = 0;
+        $websiteIds = array_keys($destination['websites']);
+
+        foreach (array_chunk($productIds, 200) as $chunk) {
+            foreach ($chunk as $pid) {
+                $pid = (int) $pid;
+
+                $resource = Mage::getResourceSingleton('catalog/product');
+                $prodWebsites = array_map('intval', (array) $resource->getWebsiteIds($pid));
+                if (!array_intersect($websiteIds, $prodWebsites)) {
+                    continue;
+                }
+
+                $product = Mage::getModel('catalog/product')
+                    ->setStoreId($storeId)
+                    ->load($pid);
+                if (!$product || !$product->getId()) {
+                    continue;
+                }
+
+                $doc = $mapper->map($product);
+                if ($doc === null) {
+                    continue;
+                }
+
+                $line = json_encode($doc);
+                if ($line !== false) {
+                    gzwrite($gz, $line . "\n");
+                    $count++;
+                }
+
+                $product->clearInstance();
+            }
+        }
+
+        Mage::app()->setCurrentStore($prevStore);
+        gzclose($gz);
+
+        if ($count === 0) {
+            @unlink($path);
+            return null;
+        }
+
+        $helper->log(sprintf(
+            'buildBulkFile: wrote %d products to %s (store=%d, size=%s)',
+            $count, basename($path), $storeId,
+            $this->_humanFileSize(filesize($path))
+        ), Zend_Log::INFO);
+
+        return array('filePath' => $path, 'count' => $count);
+    }
+
+    /**
+     * Wait for a bulk upload task to complete by polling.
+     *
+     * @param Mibizum_Sync_Model_Adapter_Mibizum $client
+     * @param string $taskId
+     * @param int    $timeoutSeconds
+     * @return array Final status {status, processed, total, errors, ...}
+     */
+    public function waitForBulkUpload($client, $taskId, $timeoutSeconds = 600)
+    {
+        $start = time();
+        while (true) {
+            $status = $client->pollBulkUpload($taskId);
+            if (isset($status['status']) && ($status['status'] === 'done' || $status['status'] === 'error')) {
+                return $status;
+            }
+            if ((time() - $start) >= $timeoutSeconds) {
+                return array('status' => 'timeout', 'processed' => 0, 'total' => 0, 'errors' => 0);
+            }
+            sleep(3);
+        }
+    }
+
+    /** @return string Human-readable file size. */
+    protected function _humanFileSize($bytes)
+    {
+        $bytes = (int) $bytes;
+        if ($bytes < 1024) return $bytes . 'B';
+        if ($bytes < 1048576) return round($bytes / 1024, 1) . 'KB';
+        return round($bytes / 1048576, 1) . 'MB';
+    }
+
+    /**
+     * Remove paused store-views from the destination list.
+     *
+     * @param Mibizum_Sync_Helper_Data $helper
+     * @param array $destinations
+     * @return array
+     */
+    protected function _filterPausedDestinations($helper, $destinations)
+    {
+        $active = array();
+        foreach ($destinations as $sig => $d) {
+            if (!$helper->isPaused($d['store'])) {
+                $active[$sig] = $d;
+            }
+        }
+        return $active;
+    }
+
+    /**
+     * @param Mibizum_Sync_Helper_Data $helper
+     * @return bool
+     */
+    protected function _allDestinationsPaused($helper)
+    {
+        $destinations = $this->_resolveDestinations($helper);
+        if (empty($destinations)) {
+            return false;
+        }
+        // PHP 5.4: empty() cannot take a function return value directly.
+        $active = $this->_filterPausedDestinations($helper, $destinations);
+        return empty($active);
     }
 
     /** @return string Unique identifier for the current worker. */

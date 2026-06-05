@@ -86,7 +86,26 @@
                  (3) Worker logs a WARN when two distinct SKUs sanitize to the same
                      Meilisearch doc id (collision), so the silent shadowing is now
                      visible. Code-only; no DB schema change. -->
-            <version>0.6.10</version>
+            <!-- 0.7.0: multistore (multi-store-view) support, for merchants
+                 running several store views/sites from one Magento (first client:
+                 tiendafetichista.com + sexshopsgay.com).
+                 (1) Scope separation: Connection + reindex config is now PER
+                     store-view (show_in_default=0): enabled, api_key,
+                     search_api_key, data_source_slug, widget snippet, and the
+                     Reindex panel — so each store view points at its own catalog
+                     with its own keys and you can't reindex with the wrong store's
+                     keys. api_url, debug_mode and sync/* stay global.
+                 (2) Per-store-view pause/resume: the Worker filters out paused
+                     destinations before claiming the batch (queue stays intact),
+                     and stops between batches if all destinations are paused.
+                 (3) Per-store URL/media correctness: products are mapped in their
+                     own store-view scope (setStoreId + setCurrentStore per
+                     destination), so each product gets ITS store's URL and image,
+                     not the first store's.
+                 Includes the file-based bulk ingest (Cloudflare-safe reindex) on
+                 the module side. Doc-id scheme unchanged (sanitizeDocId) → no
+                 reindex/clear needed on upgrade. Code-only; no DB schema change. -->
+            <version>0.7.0</version>
         </Mibizum_Sync>
     </modules>
 
@@ -398,6 +417,7 @@
                 <batch_size>100</batch_size>
                 <max_attempts>10</max_attempts>
                 <timeout_seconds>15</timeout_seconds>
+                <paused>0</paused>
             </sync>
             <!-- Badge labels are intentionally NOT seeded here. When empty, the
                  helper falls back to the translated default (e.g. __('Out of

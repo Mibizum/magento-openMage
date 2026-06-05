@@ -20,11 +20,26 @@ class Mibizum_Sync_Block_Adminhtml_Inline_Reindex
     protected function _getInnerBlockData()
     {
         $u = Mage::helper('adminhtml');
+
+        // Resolve the current store-view id from the config scope URL params.
+        $storeCode = Mage::app()->getRequest()->getParam('store', '');
+        $storeId   = 0;
+        if ($storeCode !== '') {
+            try {
+                $storeId = (int) Mage::app()->getStore($storeCode)->getId();
+            } catch (Exception $e) {
+                // Invalid store code; stays 0.
+            }
+        }
+
         return array(
             'full_reindex_url' => $u->getUrl('adminhtml/mibizum_sync_reindex/full'),
             'drain_queue_url'  => $u->getUrl('adminhtml/mibizum_sync_reindex/drain'),
             'stats_url'        => $u->getUrl('adminhtml/mibizum_sync_reindex/stats'),
             'progress_url'     => $u->getUrl('adminhtml/mibizum_sync_reindex/progress'),
+            'pause_url'        => $u->getUrl('adminhtml/mibizum_sync_reindex/pause', array('store_id' => $storeId)),
+            'resume_url'       => $u->getUrl('adminhtml/mibizum_sync_reindex/resume', array('store_id' => $storeId)),
+            'current_store_id' => $storeId,
         );
     }
 }
