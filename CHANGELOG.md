@@ -2,6 +2,33 @@
 
 All notable changes to the Magento 1 / OpenMage module are documented here.
 
+## 0.7.0
+
+### Added — multistore (multi-store-view) support
+
+For merchants running several store views / sites from one Magento install
+(first client: tiendafetichista.com + sexshopsgay.com).
+
+- **Scope separation.** Connection and reindex configuration is now **per
+  store-view** (`show_in_default=0`): `enabled`, `api_key`, `search_api_key`,
+  `data_source_slug`, the widget snippet, and the whole **Reindex** panel. Each
+  store view points at its own catalog with its own keys, and the Reindex panel
+  is only shown in store-view scope — you can no longer reindex with another
+  store's keys. `api_url`, `debug_mode` and `sync/*` remain global.
+- **Per-store-view pause/resume.** A paused store-view's destination is filtered
+  out **before** the queue batch is claimed (the queue stays intact), and the
+  drain stops between batches when every destination is paused. Admin
+  `pause`/`resume` actions + UI banner/buttons, scoped to the current store view.
+- **Per-store URL/media correctness.** Each product is mapped in its own
+  store-view scope (`setStoreId` + `setCurrentStore` per destination, restored
+  afterwards), so a product's link and image resolve to **its** store's domain —
+  not the first store's. This was the core multistore bug.
+
+Includes the module side of the **file-based bulk ingest** (Cloudflare-safe
+reindex: one upload instead of dozens of HTTP requests). The document-id scheme
+is unchanged (`sanitizeDocId`), so **no index clear/reindex is required** on
+upgrade. Code-only; no DB schema change.
+
 ## 0.6.10
 
 ### Added — reindex telemetry reaches the Mibizum Superadmin

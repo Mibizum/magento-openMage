@@ -35,6 +35,7 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     const XML_PATH_BADGES_SHOW_ATTRIBUTES = 'mibizum_sync_badges/types/show_attributes';
     const XML_PATH_BADGES_SHOW_SYSTEM     = 'mibizum_sync_badges/types/show_system';
     const XML_PATH_GENERAL_ENABLED        = 'mibizum_sync/general/enabled';
+    const XML_PATH_PAUSED                 = 'mibizum_sync/sync/paused';
     const XML_PATH_WIZARD_STATE           = 'mibizum_sync/wizard/state';
 
     /** First-run install-wizard states (see Block_Adminhtml_Wizard). */
@@ -391,6 +392,42 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
     public function isDebugMode()
     {
         return (bool) Mage::getStoreConfigFlag(self::XML_PATH_DEBUG_MODE);
+    }
+
+    /**
+     * Whether sync is paused for a store view. When paused, the Worker skips
+     * that store's destination (queue stays intact; resume + reindex catches up).
+     *
+     * @param int|null $store
+     * @return bool
+     */
+    public function isPaused($store = null)
+    {
+        return (bool) Mage::getStoreConfigFlag(self::XML_PATH_PAUSED, $store);
+    }
+
+    /**
+     * Toggle the pause flag for a specific store view. Flushes the config cache
+     * so the Worker picks it up on the next batch.
+     *
+     * @param int  $storeId
+     * @param bool $paused
+     * @return $this
+     */
+    public function setPaused($storeId, $paused)
+    {
+        Mage::getConfig()->saveConfig(
+            self::XML_PATH_PAUSED,
+            $paused ? '1' : '0',
+            'stores',
+            (int) $storeId
+        );
+        try {
+            Mage::app()->getCacheInstance()->cleanType('config');
+        } catch (Exception $e) {
+            // Best-effort; the value is persisted regardless.
+        }
+        return $this;
     }
 
     public function getBatchSize()

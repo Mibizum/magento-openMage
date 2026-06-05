@@ -126,11 +126,11 @@
                              is injected. -->
                         <widget_snippet translate="label comment">
                             <label>Widget snippet (paste from the panel)</label>
-                            <comment><![CDATA[Paste here the code that the Mibizum panel gives you under <strong>Domains -> JS Code</strong>. The module will inject it as-is into the storefront <code>&lt;head&gt;</code>. <br/>The snippet points to <code>/sdk/v1.js</code> (evergreen version: it updates automatically within the 1.x range, without touching your structure or CSS). If you need to pin a specific version, the panel can also give you a "pinned" snippet. <br/><strong>Empty = the widget is not loaded.</strong>]]></comment>
+                            <comment><![CDATA[Paste here the code that the Mibizum panel gives you under <strong>Domains -> JS Code</strong> <strong>for this store view's domain</strong>. The module will inject it as-is into the storefront <code>&lt;head&gt;</code>. Each store view / domain needs its own snippet. <br/><strong>Empty = the widget is not loaded.</strong>]]></comment>
                             <frontend_type>textarea</frontend_type>
                             <sort_order>1</sort_order>
-                            <show_in_default>1</show_in_default>
-                            <show_in_website>1</show_in_website>
+                            <show_in_default>0</show_in_default>
+                            <show_in_website>0</show_in_website>
                             <show_in_store>1</show_in_store>
                         </widget_snippet>
                         <show_category_facets translate="label comment">
@@ -278,7 +278,7 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                      ============================================================ -->
                 <connection translate="label comment">
                     <label>Connection</label>
-                    <comment><![CDATA[Settings to connect this Magento to your Mibizum account. The <strong>API key</strong> identifies your store (tenant); the module POSTs products to <code>/api/v1/index</code> with that key.]]></comment>
+                    <comment><![CDATA[Settings to connect this Magento to your Mibizum account.<br/><strong>Multi-store:</strong> API keys, the catalog slug, and the Enabled toggle are configured <strong>per store view</strong> (switch the scope selector above). The API URL and debug mode are global (set here at Default Config).]]></comment>
                     <frontend_type>text</frontend_type>
                     <sort_order>10</sort_order>
                     <show_in_default>1</show_in_default>
@@ -288,12 +288,12 @@ If your theme uses a custom search box, enter the exact selector here, for examp
 
                         <enabled translate="label comment">
                             <label>Enabled</label>
-                            <comment>When off, observers do NOT enqueue changes and the cron does NOT drain. Useful to pause without uninstalling. Note: after installing, leave it off until you have configured the API key and run Test connection.</comment>
+                            <comment>Activates this store view's connection to Mibizum. When off, observers do NOT enqueue changes for this store and the cron does NOT drain to its catalog. Configure the API keys and slug BEFORE enabling.</comment>
                             <frontend_type>select</frontend_type>
                             <source_model>adminhtml/system_config_source_yesno</source_model>
                             <sort_order>10</sort_order>
-                            <show_in_default>1</show_in_default>
-                            <show_in_website>1</show_in_website>
+                            <show_in_default>0</show_in_default>
+                            <show_in_website>0</show_in_website>
                             <show_in_store>1</show_in_store>
                         </enabled>
 
@@ -309,12 +309,12 @@ If your theme uses a custom search box, enter the exact selector here, for examp
 
                         <api_key translate="label comment">
                             <label>Private API key</label>
-                            <comment><![CDATA[Your <strong>private</strong> API key (indexing). The module uses it to PUBLISH products to your catalog, so keep it secret and server-side. If it is ever exposed, regenerate it in the Mibizum panel: <em>Catalogs -> your catalog -> API keys</em>. Stored encrypted in the DB.]]></comment>
+                            <comment><![CDATA[Your <strong>private</strong> API key (indexing) <strong>for this store view's catalog</strong>. The module uses it to PUBLISH products, so keep it secret. If exposed, regenerate it in the Mibizum panel: <em>Catalogs -> your catalog -> API keys</em>. Stored encrypted in the DB.]]></comment>
                             <frontend_type>obscure</frontend_type>
                             <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
                             <sort_order>30</sort_order>
-                            <show_in_default>1</show_in_default>
-                            <show_in_website>1</show_in_website>
+                            <show_in_default>0</show_in_default>
+                            <show_in_website>0</show_in_website>
                             <show_in_store>1</show_in_store>
                         </api_key>
 
@@ -326,22 +326,22 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                              from the browser with a CORS-validated origin. -->
                         <search_api_key translate="label comment">
                             <label>Public API key</label>
-                            <comment><![CDATA[Your <strong>public</strong> API key (search). Used by the Enter override so `/catalogsearch/result/` queries the Mibizum engine, and it is the SAME key that goes in the browser JS widget, so it is safe to expose. It can only read/search, never modify. Stored encrypted in the DB.]]></comment>
+                            <comment><![CDATA[Your <strong>public</strong> API key (search) <strong>for this store view's catalog</strong>. Used by the Enter override and the browser widget. Safe to expose (read-only). Stored encrypted in the DB.]]></comment>
                             <frontend_type>obscure</frontend_type>
                             <backend_model>adminhtml/system_config_backend_encrypted</backend_model>
                             <sort_order>35</sort_order>
-                            <show_in_default>1</show_in_default>
-                            <show_in_website>1</show_in_website>
+                            <show_in_default>0</show_in_default>
+                            <show_in_website>0</show_in_website>
                             <show_in_store>1</show_in_store>
                         </search_api_key>
 
                         <data_source_slug translate="label comment">
                             <label>Data source slug</label>
-                            <comment>Slug of the data source in the tenant (for example "products"). Empty = the tenant's first data source. Only needed if you have multiple catalogs.</comment>
+                            <comment>Slug of the Mibizum catalog <strong>for this store view</strong> (for example "fetichista" or "sexshopsgay"). Each store view that indexes to a different catalog needs its own slug. Empty = the tenant's first data source.</comment>
                             <frontend_type>text</frontend_type>
                             <sort_order>40</sort_order>
-                            <show_in_default>1</show_in_default>
-                            <show_in_website>1</show_in_website>
+                            <show_in_default>0</show_in_default>
+                            <show_in_website>0</show_in_website>
                             <show_in_store>1</show_in_store>
                         </data_source_slug>
 
@@ -409,7 +409,9 @@ If your theme uses a custom search box, enter the exact selector here, for examp
                     <label>Reindex</label>
                     <frontend_model>mibizum_sync/adminhtml_inline_reindex</frontend_model>
                     <sort_order>30</sort_order>
-                    <show_in_default>1</show_in_default>
+                    <show_in_default>0</show_in_default>
+                    <show_in_website>0</show_in_website>
+                    <show_in_store>1</show_in_store>
                 </reindex>
 
             </groups>

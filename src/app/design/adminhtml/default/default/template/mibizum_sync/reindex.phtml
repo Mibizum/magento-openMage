@@ -7,6 +7,10 @@
  *
  * @var Mibizum_Sync_Block_Adminhtml_Reindex $this
  */
+$storeId     = $this->getCurrentStoreViewId();
+$configured  = $this->isCurrentStoreConfigured();
+$paused      = $this->isPaused();
+
 $last  = $this->getLastReindex();
 $queue = $this->getQueueStats();
 $docs  = $this->getIndexDocCount();
@@ -28,6 +32,22 @@ $statusMap = array(
 $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
 ?>
 <div class="mibizum-reindex" style="margin: 6px 0 4px;">
+
+    <?php if (!$storeId): ?>
+    <div style="padding:14px 16px; border-radius:4px; color:#31708f; background:#d9edf7; border:1px solid #bce8f1; font-size:13px;">
+        <?php echo $this->__('Select a store view (scope selector above) to manage reindexing. Each store view has its own API keys and catalog.'); ?>
+    </div>
+    <?php elseif (!$configured): ?>
+    <div style="padding:14px 16px; border-radius:4px; color:#8a6d3b; background:#fcf8e3; border:1px solid #faebcc; font-size:13px;">
+        <?php echo $this->__('This store view is not fully configured. Set the API keys and enable the connection before reindexing.'); ?>
+    </div>
+    <?php else: ?>
+
+    <?php if ($paused): ?>
+    <div style="margin-bottom:12px; padding:10px 14px; border-radius:4px; color:#8a6d3b; background:#fcf8e3; border:1px solid #faebcc; font-weight:600;">
+        ⏸ <?php echo $this->__('Sync is paused for this store view. The queue is preserved. Click Resume to continue.'); ?>
+    </div>
+    <?php endif; ?>
 
     <div id="mibizum_reindex_msg" style="display:none; margin-bottom:12px; padding:10px 14px; border-radius:4px; font-weight:600;"></div>
 
@@ -426,3 +446,25 @@ $st = isset($statusMap[$last['status']]) ? $statusMap[$last['status']] : null;
 })();
 //]]>
 </script>
+
+    <!-- Pause / Resume toggle -->
+    <div style="margin-top:14px; max-width:620px;">
+        <?php if ($paused): ?>
+        <button type="button" class="scalable mibizum-reindex-btn" style="font-weight:600; color:#3c763d;"
+                data-mibizum-url="<?php echo $this->getResumeUrl(); ?>"
+                data-mibizum-reload="1"
+                title="<?php echo Mage::helper('core')->quoteEscape($this->__('Resume processing the queue for this store view.')); ?>">
+            <span>▶ <?php echo $this->__('Resume sync'); ?></span>
+        </button>
+        <?php else: ?>
+        <button type="button" class="scalable mibizum-reindex-btn" style="font-weight:normal; color:#8a6d3b;"
+                data-mibizum-url="<?php echo $this->getPauseUrl(); ?>"
+                data-mibizum-reload="1"
+                data-mibizum-confirm="<?php echo Mage::helper('core')->quoteEscape($this->__('Pause sync for this store view? The queue will be preserved and you can resume later.')); ?>"
+                title="<?php echo Mage::helper('core')->quoteEscape($this->__('Pause the sync. The queue stays intact; resume to continue where it left off.')); ?>">
+            <span>⏸ <?php echo $this->__('Pause sync'); ?></span>
+        </button>
+        <?php endif; ?>
+    </div>
+
+    <?php endif; /* $configured */ ?>
