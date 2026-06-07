@@ -116,4 +116,85 @@ class Mibizum_Sync_Helper_Ingredient extends Mage_Core_Helper_Abstract
         );
         return $json['smartItem'];
     }
+
+    /** Title/heading of the listing page. Configurable per merchant/vertical
+     *  (e.g. "Ingredientes", "Próximamente", "I+D", "Raw materials"). */
+    public function getListTitle()
+    {
+        $t = trim((string) Mage::getStoreConfig('mibizum_sync/frontend/ingredient_list_title'));
+        return $t !== '' ? $t : 'Ingredientes';
+    }
+
+    /**
+     * Fetch the LIST of enabled Smart Items from the SaaS (cached briefly), for
+     * the public listing page `/{url_prefix}/`. Returns the enriched items
+     * (statusLabel/statusBg/statusFg/substatusLabel, ...) or [] on any failure.
+     *
+     * @param  int $limit
+     * @return array
+     */
+    public function fetchSmartItems($limit = 200)
+    {
+        $limit = max(1, min(200, (int) $limit));
+
+        $cache    = Mage::app()->getCache();
+        $cacheKey = 'mibizum_sync_si_list_' . $limit;
+        $cached   = $cache->load($cacheKey);
+        if ($cached !== false) {
+            $decoded = @json_decode($cached, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        /** @var Mibizum_Sync_Helper_Data $sync */
+        $sync   = Mage::helper('mibizum_sync');
+        $apiUrl = rtrim((string) $sync->getApiUrl(), '/');
+        $key    = (string) $sync->getSearchApiKey();
+        $source = (string) $sync->getDataSourceSlug();
+        if ($apiUrl === '' || $key === '' || $source === '') {
+            return array();
+        }
+
+        $host   = parse_url(Mage::getBaseUrl(), PHP_URL_HOST);
+        $origin = $host ? ('https://' . $host) : null;
+        $url    = $apiUrl . '/api/v1/smart-items?source=' . urlencode($source) . '&limit=' . $limit;
+
+        $headers = array('Authorization: Bearer ' . $key, 'Accept: application/json');
+        if ($origin) {
+            $headers[] = 'Origin: ' . $origin;
+        }
+
+        $body = false;
+        $code = 0;
+        try {
+            $ch = curl_init();
+            curl_setopt_array($ch, array(
+                CURLOPT_URL            => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_TIMEOUT        => 5,
+                CURLOPT_HTTPHEADER     => $headers,
+            ));
+            $body = curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+        } catch (Exception $e) {
+            return array();
+        }
+
+        if ($code !== 200 || !$body) {
+            return array();
+        }
+        $json = @json_decode($body, true);
+        if (!is_array($json)) {
+            return array();
+        }
+        $items = isset($json['items']) && is_array($json['items'])
+            ? $json['items']
+            : (isset($json['smartItems']) && is_array($json['smartItems']) ? $json['smartItems'] : array());
+
+        $cache->save(json_encode($items), $cacheKey, array('mibizum_sync_ingredient'), self::CACHE_TTL_SECONDS);
+        return $items;
+    }
 }

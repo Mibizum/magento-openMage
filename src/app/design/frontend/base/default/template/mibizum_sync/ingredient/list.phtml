@@ -1,0 +1,69 @@
+<?php
+/**
+ * @var Mibizum_Sync_Block_Frontend_Ingredient $this
+ *
+ * Public LISTING of Smart Items (`/{url_prefix}/`). The merchant titles the
+ * section however fits their vertical (Ingredientes / Próximamente / I+D / Raw…).
+ * Thin: data is fetched (cached) from the Mibizum SaaS; the panel is the source
+ * of truth. Card style recovered from the original MCC overlay
+ * (.mcc-hit--ingredient).
+ */
+$items = $this->getSmartItems();
+$title = $this->getListTitle();
+$flask = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v7L5 18.5A1.5 1.5 0 0 0 6.3 21h11.4a1.5 1.5 0 0 0 1.3-2.5L14 10V3"/><line x1="8.5" y1="14" x2="15.5" y2="14"/></svg>';
+?>
+<style type="text/css">
+    .mbz-si-list { max-width: 920px; margin: 0 auto; padding: 1.5rem; }
+    .mbz-si-list__title { margin: 0 0 1.2rem; font-size: 1.9rem; }
+    .mbz-si-list__empty { color: #777; padding: 1rem 0; }
+    .mbz-si-card { display: flex; align-items: stretch; background: #fafafa; border: 1px solid #ececec; border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+    .mbz-si-card__band { flex: 0 0 8px; background: #e0e0e0; }
+    .mbz-si-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; }
+    .mbz-si-card__head { display: flex; align-items: center; gap: 10px; }
+    .mbz-si-card__icon { flex: 0 0 auto; width: 26px; height: 26px; color: #8b3a87; }
+    .mbz-si-card__icon svg { width: 26px; height: 26px; display: block; }
+    .mbz-si-card__title { font-size: 20px; font-weight: 700; line-height: 1.25; color: #333; text-decoration: none; }
+    .mbz-si-card__title:hover { color: #8b3a87; }
+    .mbz-si-card__status { align-self: flex-start; font-size: 14px; font-weight: 600; line-height: 1.3; padding: 3px 11px; border-radius: 999px; background: #eee; color: #333; }
+    .mbz-si-card__desc { margin: 0; font-size: 14px; line-height: 1.5; color: #555; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .mbz-si-card__cta { align-self: flex-start; font-size: 15px; font-weight: 700; color: #8b3a87; text-decoration: none; }
+    .mbz-si-card__cta:hover { text-decoration: underline; }
+</style>
+
+<div class="mbz-si-list">
+    <h1 class="mbz-si-list__title"><?php echo $this->htmlEscape($title); ?></h1>
+
+    <?php if (empty($items)): ?>
+        <p class="mbz-si-list__empty"><?php echo $this->__('No items to show yet.'); ?></p>
+    <?php else: ?>
+        <?php foreach ($items as $it): ?>
+            <?php $url = $this->getFichaUrl(isset($it['slug']) ? $it['slug'] : ''); ?>
+            <div class="mbz-si-card">
+                <span class="mbz-si-card__band" style="<?php echo !empty($it['statusBg']) ? 'background:' . $this->htmlEscape($it['statusBg']) . ';' : ''; ?>"></span>
+                <div class="mbz-si-card__body">
+                    <div class="mbz-si-card__head">
+                        <span class="mbz-si-card__icon" aria-hidden="true"><?php echo $flask; ?></span>
+                        <a class="mbz-si-card__title" href="<?php echo $this->htmlEscape($url); ?>"><?php echo $this->htmlEscape(isset($it['name']) ? $it['name'] : ''); ?></a>
+                    </div>
+
+                    <?php if (!empty($it['statusLabel'])): ?>
+                        <?php
+                            $st = $it['statusLabel'];
+                            if (!empty($it['substatusLabel'])) $st .= ' · ' . $it['substatusLabel'];
+                            $badgeStyle = '';
+                            if (!empty($it['statusBg'])) $badgeStyle .= 'background:' . $this->htmlEscape($it['statusBg']) . ';';
+                            if (!empty($it['statusFg'])) $badgeStyle .= 'color:' . $this->htmlEscape($it['statusFg']) . ';';
+                        ?>
+                        <span class="mbz-si-card__status" style="<?php echo $badgeStyle; ?>"><?php echo $this->htmlEscape($st); ?></span>
+                    <?php endif; ?>
+
+                    <?php if (!empty($it['description'])): ?>
+                        <p class="mbz-si-card__desc"><?php echo $this->htmlEscape($this->excerpt($it['description'])); ?></p>
+                    <?php endif; ?>
+
+                    <a class="mbz-si-card__cta" href="<?php echo $this->htmlEscape($url); ?>"><?php echo $this->__('Learn more'); ?> &rarr;</a>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</div>

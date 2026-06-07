@@ -401,6 +401,9 @@
                      router is a no-op when disabled. URL: /{ingredient_url_prefix}/{slug} -->
                 <ingredient_enabled>1</ingredient_enabled>
                 <ingredient_url_prefix>ingredientes</ingredient_url_prefix>
+                <!-- Listing page title; per-merchant/vertical (Ingredientes /
+                     Próximamente / I+D / Raw materials / …). -->
+                <ingredient_list_title>Ingredientes</ingredient_list_title>
                 <show_category_facets>0</show_category_facets>
                 <title_strip_strings></title_strip_strings>
                 <show_price>1</show_price>

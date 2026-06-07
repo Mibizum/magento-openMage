@@ -59,4 +59,36 @@ class Mibizum_Sync_Block_Frontend_Ingredient extends Mage_Core_Block_Template
         }
         return $public;
     }
+
+    // ---- Listing page (/{url_prefix}/) -------------------------------------
+
+    /** All enabled Smart Items for the listing page. */
+    public function getSmartItems()
+    {
+        return Mage::helper('mibizum_sync/ingredient')->fetchSmartItems(200);
+    }
+
+    /** Configurable listing title (Ingredientes / Próximamente / I+D / Raw...). */
+    public function getListTitle()
+    {
+        return Mage::helper('mibizum_sync/ingredient')->getListTitle();
+    }
+
+    /** Public ficha URL for a given slug. */
+    public function getFichaUrl($slug)
+    {
+        return Mage::helper('mibizum_sync/ingredient')->getFichaUrl($slug);
+    }
+
+    /** Short, plain-text excerpt of a description (the CSS also clamps to 2 lines). */
+    public function excerpt($text, $max = 160)
+    {
+        $text = trim(preg_replace('/\s+/', ' ', strip_tags((string) $text)));
+        if (function_exists('mb_strlen')) {
+            if (mb_strlen($text) <= $max) return $text;
+            return rtrim(mb_substr($text, 0, $max)) . '…';
+        }
+        if (strlen($text) <= $max) return $text;
+        return rtrim(substr($text, 0, $max)) . '…';
+    }
 }
