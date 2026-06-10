@@ -444,4 +444,77 @@ class Mibizum_Sync_Model_Scheduler
         );
         return is_array($json) ? $json : array();
     }
+
+    /**
+     * Sondea comandos remotos pendientes en Mibizum y los ejecuta. Hoy solo
+     * 'resync_catalog' -> fullReindex completo. Lo dispara el cron cada pocos
+     * minutos; permite "Resincronizar catalogo" desde el panel SIN tocar el
+     * modulo. El panel deduplica, asi que normalmente hay 0..1 comando pendiente.
+     *
+     * Best-effort: si el poll falla, se reintenta en el siguiente tick. El
+     * reindex se ejecuta UNA vez aunque vengan varios comandos resync (uno solo
+     * ya reconstruye todo el catalogo); todos se confirman (ack).
+     *
+     * @param string $trigger 'cron' (informativo).
+     */
+    public function pollRemoteCommands($trigger = 'cron')
+    {
+        /** @var Mibizum_Sync_Helper_Data $helper */
+        $helper = Mage::helper('mibizum_sync');
+        if (!$helper->isEnabledAnywhere()) {
+            return; // no conectado: nada que sondear
+        }
+
+        /** @var Mibizum_Sync_Model_Adapter_Mibizum $adapter */
+        $adapter = Mage::getModel('mibizum_sync/adapter_mibizum');
+        $slug    = $helper->getDataSourceSlug();
+
+        try {
+            $commands = $adapter->pollCommands($slug);
+        } catch (Exception $e) {
+            $helper->log('pollRemoteCommands: poll failed: ' . $e->getMessage(), Zend_Log::WARN);
+            return;
+        }
+        if (empty($commands)) {
+            return;
+        }
+
+        $didResync = false;
+        foreach ($commands as $cmd) {
+            $id      = isset($cmd['id']) ? (int) $cmd['id'] : 0;
+            $command = isset($cmd['command']) ? (string) $cmd['command'] : '';
+            if ($id <= 0) {
+                continue;
+            }
+
+            if ($command === 'resync_catalog') {
+                $status = 'done';
+                $result = null;
+                if (!$didResync) {
+                    try {
+                        $helper->log('pollRemoteCommands: ejecutando resync remoto (cmd ' . $id . ')');
+                        $this->fullReindex('remote_resync');
+                        $didResync = true;
+                    } catch (Exception $e) {
+                        $status = 'failed';
+                        $result = substr($e->getMessage(), 0, 480);
+                        $helper->log('pollRemoteCommands: fullReindex failed: ' . $e->getMessage(), Zend_Log::ERR);
+                    }
+                }
+                try {
+                    $adapter->ackCommand($id, $status, $result);
+                } catch (Exception $e) {
+                    $helper->log('pollRemoteCommands: ack failed for cmd ' . $id . ': ' . $e->getMessage(), Zend_Log::WARN);
+                }
+            } else {
+                // Comando desconocido (version de modulo mas antigua que el backend):
+                // confirmamos para no reentregarlo en bucle.
+                try {
+                    $adapter->ackCommand($id, 'done', 'unknown command ignored: ' . $command);
+                } catch (Exception $e) {
+                    // best-effort
+                }
+            }
+        }
+    }
 }

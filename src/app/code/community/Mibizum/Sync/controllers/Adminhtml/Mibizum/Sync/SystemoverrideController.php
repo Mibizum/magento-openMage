@@ -200,6 +200,18 @@ class Mibizum_Sync_Adminhtml_Mibizum_Sync_SystemoverrideController extends Mage_
         $h = Mage::helper('mibizum_sync');
         $this->getResponse()->setHeader('Content-Type', 'application/json; charset=UTF-8', true);
 
+        // CSRF: write action. Endpoint JSON, no redirigir (a diferencia de
+        // _guardWrite); exige POST + form_key valido y devuelve error JSON.
+        if (!$this->getRequest()->isPost() || !$this->_validateFormKey()) {
+            $this->getResponse()
+                ->setHttpResponseCode(403)
+                ->setBody(json_encode(array(
+                    'ok'    => false,
+                    'error' => $this->__('Invalid or missing security token. Please reload and retry.'),
+                ), JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
         try {
             if (empty($_FILES['icon_file']) || !is_array($_FILES['icon_file'])) {
                 throw new Exception($this->__('No file received.'));

@@ -2,6 +2,50 @@
 
 All notable changes to the Magento 1 / OpenMage module are documented here.
 
+## 0.7.3
+
+### Added — remote catalog resync command polling
+
+The module can now receive a remote `resync_catalog` command from Mibizum and
+run a full catalog reindex from the merchant's own Magento cron, without opening
+an inbound connection to the store.
+
+- Adds `GET /api/v1/commands?source=...` polling and
+  `POST /api/v1/commands/:id/ack` acknowledgement in the Mibizum adapter.
+- Adds `Scheduler::pollRemoteCommands()`, executed by cron, to process pending
+  commands.
+- Unknown commands are acknowledged and ignored, so newer backend commands do
+  not trap older modules in a retry loop.
+- The command is best-effort and scoped to the configured data source slug.
+
+Code-only; no DB schema change.
+
+## 0.7.2
+
+### Fixed — native search bridge and badge table self-healing
+
+- Hardens the native Magento search fallback around `catalogsearch_result` so a
+  store with a non-standard/ghost foreign key does not break the Mibizum Enter
+  override.
+- Makes the three badge admin controllers validate POST + `form_key`.
+- Adds idempotent self-healing for the badge tables so missing rows are restored
+  safely during upgrade.
+
+## 0.7.1
+
+### Fixed — storefront-ready cached product images
+
+Search documents now use Magento's cached/resized catalog image helper
+derivative instead of the original raw media file. The mapper prefers the same
+storefront-ready image chain Magento would serve to visitors, with
+`image`/`small_image`/`thumbnail` fallback.
+
+This avoids loading unnecessarily heavy original product images in the Mibizum
+search overlay and reduces visitor bandwidth.
+
+Code-only for normal upgrades; includes compatibility upgrade scripts for stores
+coming from 0.6.10 or 0.7.0.
+
 ## 0.7.0
 
 ### Added — multistore (multi-store-view) support

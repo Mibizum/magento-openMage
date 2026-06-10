@@ -47,7 +47,8 @@ set -euo pipefail
 export COPYFILE_DISABLE=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"        # repo rootSRC="$ROOT/src"
+ROOT="$(cd "$HERE/.." && pwd)"        # repo root
+SRC="$ROOT/src"
 DIST="$ROOT/dist"
 CONFIG="$SRC/app/code/community/Mibizum/Sync/etc/config.xml"
 

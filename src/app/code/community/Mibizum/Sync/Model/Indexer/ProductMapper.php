@@ -562,33 +562,31 @@ class Mibizum_Sync_Model_Indexer_ProductMapper
 
     protected function _getImageUrl($product)
     {
-        // Fallback chain: image → small_image → thumbnail. Many stores only
-        // populate small_image (the grid thumbnail) and leave the "base image"
-        // role empty; without this fallback every such product shows up with no
-        // picture in the widget.
-        $img = $product->getImage();
-        if (!$img || $img === 'no_selection') {
-            $img = $product->getSmallImage();
-        }
-        if (!$img || $img === 'no_selection') {
-            $img = $product->getThumbnail();
-        }
-        if (!$img || $img === 'no_selection') {
-            return '';
-        }
-        // We use the ORIGINAL image URL instead of going through resize().
-        // Reason: on a mass reindex (1000+ products), resize() loads GD for each
-        // image and eats memory without freeing it between products -> OOM. The
-        // JS client scales visually with CSS (object-fit, max-width). If
-        // CDN-friendly thumbnails are needed later, they are generated in a
-        // separate build.
+        // Search cards should use Magento's storefront-ready cached derivative,
+        // not the raw media/original file. The worker maps inside the destination
+        // store scope, so the helper resolves the correct base media URL/theme.
         try {
-            $mediaUrl = Mage::app()->getStore()
-                ->getBaseUrl(Mage_Core_Model_Store::URL_TYPE_MEDIA);
-            return rtrim($mediaUrl, '/') . '/catalog/product' . $img;
+            foreach (array('image', 'small_image', 'thumbnail') as $role) {
+                $img = $product->getData($role);
+                if (!$img || $img === 'no_selection') {
+                    continue;
+                }
+
+                try {
+                    $url = (string) Mage::helper('catalog/image')
+                        ->init($product, $role)
+                        ->resize(364);
+                    if ($url !== '') {
+                        return $url;
+                    }
+                } catch (Exception $e) {
+                    // Try the next image role before giving up.
+                }
+            }
         } catch (Exception $e) {
-            return '';
+            // Defensive: indexing must not fail because an image helper failed.
         }
+        return '';
     }
 
     /**

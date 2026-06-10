@@ -105,7 +105,14 @@
                  Includes the file-based bulk ingest (Cloudflare-safe reindex) on
                  the module side. Doc-id scheme unchanged (sanitizeDocId) → no
                  reindex/clear needed on upgrade. Code-only; no DB schema change. -->
-            <version>0.7.0</version>
+            <!-- 0.7.1: search result images now use Magento's cached/resized
+                 catalog image helper derivative (364px) with image/small_image/
+                 thumbnail fallback instead of indexing the raw original media
+                 URL. Code-only; no DB schema change. -->
+            <!-- 0.7.2: self-heal idempotente de las 3 tablas de badges (#3) +
+                 blindaje del insert de catalogsearch_result en el fallback nativo
+                 contra la carrera de la FK fantasma (#2). -->
+            <version>0.7.3</version>
         </Mibizum_Sync>
     </modules>
 
@@ -293,6 +300,19 @@
                     <model>mibizum_sync/scheduler::drainQueue</model>
                 </run>
             </mibizum_sync_drain>
+
+            <!-- Poll de comandos remotos (resync, ...) cada 10 min. Permite
+                 "Resincronizar catalogo" desde el panel de Mibizum SIN entrar al
+                 modulo: el panel encola el comando y este cron lo recoge y lanza
+                 fullReindex. Ligero si no hay comandos pendientes. -->
+            <mibizum_sync_poll_commands>
+                <schedule>
+                    <cron_expr>*/10 * * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>mibizum_sync/scheduler::pollRemoteCommands</model>
+                </run>
+            </mibizum_sync_poll_commands>
 
             <!-- applyEngineSettings re-applies the schema
                  (searchable/filterable/sortable) to the index every night at

@@ -66,9 +66,17 @@ class Mibizum_Sync_Model_Adapter_Mibizum
             );
         }
 
+        $detail = substr((string) $body, 0, 300);
+        $json   = json_decode((string) $body, true);
+        if (is_array($json) && isset($json['error'])) {
+            $detail = $json['error'];
+            if (isset($json['message'])) {
+                $detail .= ': ' . $json['message'];
+            }
+        }
         throw new Exception(sprintf(
             'indexDocuments: backend responded HTTP %d - %s',
-            $code, substr((string) $body, 0, 300)
+            $code, $detail
         ));
     }
 
@@ -346,5 +354,50 @@ class Mibizum_Sync_Model_Adapter_Mibizum
             throw new Exception('Network error: ' . ($netError ?: 'unknown'));
         }
         return array($code, (string) $resp);
+    }
+
+    /**
+     * Sondea comandos remotos pendientes para este data source (resync, ...).
+     * GET /api/v1/commands?source=SLUG. Devuelve [] si no hay o si la respuesta
+     * no es 200 (best-effort: el cron reintenta en el siguiente tick).
+     *
+     * @param  string|null $source slug del data source
+     * @return array        [ ['id'=>int,'command'=>string,...], ... ]
+     */
+    public function pollCommands($source = null)
+    {
+        $helper = Mage::helper('mibizum_sync');
+        $url    = $helper->getApiUrl() . '/api/v1/commands';
+        if ($source) {
+            $url .= '?source=' . rawurlencode($source);
+        }
+        list($code, $body) = $this->_request('GET', $url, null);
+        if ($code !== 200) {
+            return array();
+        }
+        $data = json_decode($body, true);
+        return (is_array($data) && isset($data['commands']) && is_array($data['commands']))
+            ? $data['commands']
+            : array();
+    }
+
+    /**
+     * Confirma la ejecucion de un comando remoto. POST /api/v1/commands/:id/ack.
+     *
+     * @param  int         $id     id del comando
+     * @param  string      $status 'done' | 'failed' | 'acked'
+     * @param  string|null $result eco/mensaje opcional (cap. 500 en backend)
+     * @return bool         true si 2xx
+     */
+    public function ackCommand($id, $status = 'done', $result = null)
+    {
+        $helper  = Mage::helper('mibizum_sync');
+        $url     = $helper->getApiUrl() . '/api/v1/commands/' . rawurlencode((string) $id) . '/ack';
+        $payload = array('status' => $status);
+        if ($result !== null) {
+            $payload['result'] = $result;
+        }
+        list($code, ) = $this->_request('POST', $url, json_encode($payload));
+        return $code >= 200 && $code < 300;
     }
 }

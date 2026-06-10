@@ -4,11 +4,12 @@ installed in the merchant's store to connect their catalog with the Mibizum SaaS
 
 ## Status
 
-`v0.6.8` - **production-ready and distributable** through all the standard
+`v0.7.3` - **production-ready and distributable** through all the standard
 Magento 1 channels (direct, two-phase FTP, Magento Connect, Composer, modman).
 Full safe-disable hardening + CSRF hardening (POST + form_key on every
-state-changing admin action). The packaging/install/uninstall guide lives in
-[the docs](https://docs.mibizum.io/magento).
+state-changing admin action), multistore support, cached storefront-ready
+product images, and remote catalog resync polling from the Mibizum panel. The
+packaging/install/uninstall guide lives in [the docs](https://docs.mibizum.io/magento).
 
 ## What it does
 
@@ -52,14 +53,14 @@ src/app/
     ├── Block/Frontend/Config.php                         ← injects the widget snippet into <head>
     ├── Model/
     │   ├── Observer.php                                  ← save/delete/stock observers (+ config-saved)
-    │   ├── Scheduler.php                                 ← fullReindex + drainQueue + applyEngineSettings
+    │   ├── Scheduler.php                                 ← fullReindex + drainQueue + applyEngineSettings + remote resync commands
     │   ├── Indexer/{Queue,Worker,ProductMapper}.php      ← DB queue + worker + product→doc mapping
     │   ├── Search/Adapter.php                            ← HTTP client /api/v1/search (server-side Enter)
     │   ├── Adapter/Mibizum.php                           ← HTTP client /api/v1/index (indexer)
     │   ├── NativeSearchBridge.php                        ← Enter rewrite → Mibizum engine (MySQL fallback)
     │   └── … (Nature/AttributeBadge/SystemOverride + Resource/)
     ├── controllers/Adminhtml/Mibizum/Sync/…Controller.php ← grids/forms + Reindex (full/drain/stats)
-    └── sql/mibizum_sync_setup/                            ← install-0.1.0 + upgrades up to 0.6.1
+    └── sql/mibizum_sync_setup/                            ← install-0.1.0 + upgrades up to 0.7.2
 ```
 
 (Tables: `mibizum_sync_index_queue`, `mibizum_sync_attribute_config`,

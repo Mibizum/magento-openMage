@@ -214,6 +214,7 @@ class Mibizum_Sync_Model_Indexer_Worker
         $targetCount = array();   // queue_id => number of destinations it must reach
         $okCount     = array();   // queue_id => destinations reached OK
         $failed      = array();   // queue_id => bool (failed in >= 1 destination)
+        $failErrors  = array();   // queue_id => array of error strings per failed destination
         $skip        = array();   // queue_ids with no target destination (complete now)
 
         // Product -> website ids (loaded once, lightweight, default scope).
@@ -233,6 +234,7 @@ class Mibizum_Sync_Model_Indexer_Worker
             $targetCount[$qid] = $tc;
             $okCount[$qid]     = 0;
             $failed[$qid]      = false;
+            $failErrors[$qid]  = array();
             if ($tc === 0) {
                 // Not assigned to any connected website -> nothing to index.
                 $skip[] = $qid;
@@ -324,11 +326,13 @@ class Mibizum_Sync_Model_Indexer_Worker
                         $okCount[$qid]++;
                     }
                 } catch (Exception $ex) {
+                    $errMsg = $ex->getMessage();
                     foreach ($chunk as $doc) {
                         $qid = $docQueue[$doc['id']];
                         $failed[$qid] = true;
+                        $failErrors[$qid][] = 'store=' . $d['store'] . ': ' . $errMsg;
                     }
-                    $helper->log('Worker upsert chunk failed in a destination: ' . $ex->getMessage(), Zend_Log::ERR);
+                    $helper->log('Worker upsert chunk failed in a destination: ' . $errMsg, Zend_Log::ERR);
                 }
             }
         }
@@ -354,7 +358,19 @@ class Mibizum_Sync_Model_Indexer_Worker
             $result['succeeded'] += count($completeIds);
         }
         if (!empty($failIds)) {
-            $queue->fail($failIds, 'upsert incomplete or failed in at least one destination');
+            // Recopilar errores únicos de todos los entries fallidos
+            $allErrors = array();
+            foreach ($failIds as $qid) {
+                if (!empty($failErrors[$qid])) {
+                    foreach ($failErrors[$qid] as $e) {
+                        $allErrors[$e] = true;
+                    }
+                }
+            }
+            $reason = empty($allErrors)
+                ? 'upsert incomplete in at least one destination'
+                : 'upsert failed: ' . implode(' | ', array_slice(array_keys($allErrors), 0, 3));
+            $queue->fail($failIds, substr($reason, 0, 500));
             $result['failed'] += count($failIds);
         }
     }

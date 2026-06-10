@@ -163,6 +163,20 @@ class Mibizum_Sync_Model_NativeSearchBridge extends Mage_CatalogSearch_Model_Res
             );
         }
 
-        $adapter->insertMultiple($table, $rows);
+        // #2 forense: blindaje contra la carrera con la FK fantasma de
+        // catalogsearch_result (FK_MGZS_*, anadida a mano en prod, NO la crea este
+        // modulo). Si catalogsearch_query fue purgado/TRUNCADO durante el roundtrip
+        // al motor (hasta 15s), el insert violaria esa FK con SQLSTATE[23000].
+        // insertOnDuplicate (idempotente) + try/catch => nunca 500ea la pagina; a lo
+        // sumo se degrada a resultados nativos. El fix RAIZ es dropear esa FK en prod.
+        try {
+            $adapter->insertOnDuplicate($table, $rows, array('relevance'));
+        } catch (Exception $e) {
+            Mage::log(
+                'NativeSearchBridge: catalogsearch_result insert omitido (' . $e->getMessage() . ')',
+                Zend_Log::WARN,
+                'mibizum_sync.log'
+            );
+        }
     }
 }
