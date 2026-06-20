@@ -2,6 +2,36 @@
 
 All notable changes to the Magento 1 / OpenMage module are documented here.
 
+## 0.7.9
+
+### Changed — debounced reindex after an image cache flush
+Flushing the **Catalog Images Cache** no longer triggers a reindex on every flush.
+The module now waits until the flush activity has settled (a short debounce) and then
+runs a single, memory-safe reindex (queue + cron drain), so the resized thumbnails the
+search index points at are regenerated without 404s — never on each click or while the
+cache is still being regenerated. Repeated flushes in a short window are reported to
+Mibizum as unusual activity.
+
+## 0.7.8
+
+### Added — auto-reindex after an image cache flush
+Flushing the Catalog Images Cache deletes the resized image derivatives that the search
+index references. The module now observes that event and re-syncs the catalog so search
+thumbnails stay valid.
+
+## 0.7.7
+
+### Changed — Smart Items (formerly "Ingredients") + product page redesign
+The Ingredients feature is renamed to **Smart Items** across the admin and storefront
+(spanning 0.7.5–0.7.7). The existing `ingredientes` front URL is preserved, so there are
+no broken links. The Smart Item detail page was redesigned (roadmap + photo).
+
+## 0.7.4
+
+### Added — live reindex progress
+The reindex admin screen now shows live progress ("Reindexing… N of M") while a full
+reindex runs.
+
 ## 0.7.3
 
 ### Added — remote catalog resync command polling

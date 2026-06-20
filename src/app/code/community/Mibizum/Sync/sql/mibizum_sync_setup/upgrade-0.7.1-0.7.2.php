@@ -2,7 +2,7 @@
 /**
  * Self-heal idempotente de las 3 tablas de badges (#3 forense).
  *
- * Forense en micosmeticacasera vio errores "Base table or view not found" de
+ * Un store en producción vio errores "Base table or view not found" de
  * `mibizum_sync_attribute_badges`, `mibizum_sync_nature_badges` y
  * `mibizum_sync_system_badge_overrides`. Análisis: esas tablas se crean en
  * upgrades tempranos (0.1.0-0.5.0), TODOS antes de 0.6.10, así que el puente

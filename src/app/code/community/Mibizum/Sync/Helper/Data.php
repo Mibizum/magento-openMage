@@ -859,6 +859,61 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
         $this->_postSyncRun($payload);
     }
 
+    // --- Debounce del reindex por flush de caché de imágenes + alarma de abuso
+    // (0.7.9). Claves de caché de Magento (sobreviven al "Flush Catalog Images
+    // Cache"; solo las borra un flush TOTAL de caché). Tunables: ajustables aquí. ---
+    const IMGFLUSH_PENDING       = 'mibizum_imgflush_pending';   // ts del último flush pendiente de reindex
+    const IMGFLUSH_WINSTART      = 'mibizum_imgflush_winstart';  // inicio de la ventana de abuso
+    const IMGFLUSH_COUNT         = 'mibizum_imgflush_count';     // nº de flushes en la ventana
+    const IMGFLUSH_ALARMCD       = 'mibizum_imgflush_alarmcd';   // cooldown de la alarma (ts hasta cuándo)
+    const IMGFLUSH_DEBOUNCE_SECS = 180;   // esperar 3 min de calma tras el último flush antes de reindexar
+    const IMGFLUSH_WINDOW_SECS   = 1800;  // ventana de 30 min para contar flushes
+    const IMGFLUSH_ABUSE_COUNT   = 4;     // >= 4 flushes en la ventana -> alarma al superadmin
+    const IMGFLUSH_ALARM_CD_SECS = 3600;  // como máximo 1 alarma por hora
+
+    /**
+     * Reporta una ALARMA operativa al backend (POST /api/v1/module-alarm) para que
+     * el superadmin vea actividad inusual del módulo (p.ej. vaciados repetidos de la
+     * caché de imágenes). Best-effort: silencia 404/errores y nunca lanza. El tenant
+     * lo resuelve la API key.
+     *
+     * @param  string $type
+     * @param  array  $details
+     * @return void
+     */
+    public function reportModuleAlarm($type, array $details = array())
+    {
+        $apiUrl = $this->getApiUrl();
+        $apiKey = $this->getApiKey();
+        if (!$apiUrl || !$apiKey) {
+            return;
+        }
+        try {
+            $payload = array('type' => (string) $type, 'details' => $details);
+            if ($this->getDataSourceSlug()) {
+                $payload['data_source_slug'] = $this->getDataSourceSlug();
+            }
+            $ch = curl_init();
+            curl_setopt_array($ch, array(
+                CURLOPT_URL            => rtrim($apiUrl, '/') . '/api/v1/module-alarm',
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT_MS     => 2000,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_HTTPHEADER     => array(
+                    'Content-Type: application/json',
+                    'Authorization: Bearer ' . $apiKey,
+                    'Accept: application/json',
+                ),
+            ));
+            curl_exec($ch);
+            curl_close($ch);
+        } catch (Exception $e) {
+            $this->log('reportModuleAlarm failed: ' . $e->getMessage(), Zend_Log::WARN);
+        }
+    }
+
     /**
      * Reports the START of a reindex (status=running, no finished_at) so the
      * Superadmin can show "reindex in progress" live. Returns the backend run id
@@ -866,16 +921,22 @@ class Mibizum_Sync_Helper_Data extends Mage_Core_Helper_Abstract
      * backend did not return one / is unreachable / is an old version without
      * the endpoint.
      *
-     * @param  string $trigger 'manual' | 'cron' | 'cli'
+     * @param  string   $trigger  'manual' | 'cron' | 'cli' | 'remote_resync'
+     * @param  int|null $enqueued total de productos que se van a reindexar (para
+     *                            que el panel pinte la barra "0 de N" desde ya).
      * @return int|null
      */
-    public function reportSyncRunStart($trigger = 'manual')
+    public function reportSyncRunStart($trigger = 'manual', $enqueued = null)
     {
-        $resp = $this->_postSyncRun(array(
+        $payload = array(
             'status'     => 'running',
             'trigger'    => $trigger,
             'started_at' => gmdate('c'),
-        ));
+        );
+        if ($enqueued !== null) {
+            $payload['meta'] = array('enqueued' => (int) $enqueued, 'processed' => 0);
+        }
+        $resp = $this->_postSyncRun($payload);
         if (is_array($resp) && isset($resp['id']) && is_numeric($resp['id'])) {
             return (int) $resp['id'];
         }

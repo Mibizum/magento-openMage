@@ -20,6 +20,14 @@ class Mibizum_Sync_Model_Scheduler
      */
     public function fullReindex($trigger = 'cron')
     {
+        // Magento cron invoca el método pasando el objeto Mage_Cron_Model_Schedule
+        // como primer argumento. Si $trigger no es string, normalizamos a 'cron':
+        // de lo contrario el sync-run se reporta con trigger:{objeto} y el backend
+        // lo rechaza con 400 ("trigger: Expected string, received object").
+        if (!is_string($trigger)) {
+            $trigger = 'cron';
+        }
+
         /** @var Mibizum_Sync_Helper_Data $helper */
         $helper = Mage::helper('mibizum_sync');
 
@@ -56,6 +64,7 @@ class Mibizum_Sync_Model_Scheduler
         );
         $status       = 'success';
         $errorMessage = null;
+        $syncRunId    = null; // id de la fila "running" abierta al inicio (barra de progreso)
 
         try {
             // 0. Sync attribute schema. Before reindexing documents, make sure
@@ -90,6 +99,13 @@ class Mibizum_Sync_Model_Scheduler
 
             $enqueued = count($productIds);
             $helper->log("fullReindex collected $enqueued visible products");
+
+            // Abre la fila "running" en el panel CON el total → el merchant ve
+            // "Reindexando… (N productos)" en vivo mientras dura el reindex (antes
+            // no se mostraba nada hasta el final). El id se pasa al finish para
+            // CERRAR esta misma fila (no crear otra). Best-effort: si el panel no
+            // responde, $syncRunId queda null y el finish crea la fila terminal.
+            $syncRunId = $helper->reportSyncRunStart($trigger, $enqueued);
 
             /** @var Mibizum_Sync_Model_Indexer_Worker $worker */
             $worker = Mage::getSingleton('mibizum_sync/indexer_worker');
@@ -133,6 +149,7 @@ class Mibizum_Sync_Model_Scheduler
         $durationMs    = (int) round((microtime(true) - $startedAt) * 1000);
         $helper->reportSyncRun(array(
             'data_source_slug' => $helper->getDataSourceSlug(),
+            'sync_run_id'      => $syncRunId, // cierra la fila abierta al inicio (o null → fila terminal)
             'status'           => $status,
             'trigger'          => $trigger,
             'started_at'       => $startedAtIso,
@@ -334,6 +351,38 @@ class Mibizum_Sync_Model_Scheduler
     }
 
     /**
+     * Cron tick (cada 2 min) del reindex DEBOUNCED por flush de caché de imágenes.
+     * Dispara un reindex UNA vez que la actividad de flush se ha calmado durante
+     * IMGFLUSH_DEBOUNCE_SECS -> reindexamos tras asentarse la regeneración, no en
+     * cada flush ni durante. Usa la ruta segura enqueue+drain (el bulk puede OOM al
+     * regenerar una caché fría en un solo proceso). Un flush posterior resetea el ts
+     * pendiente -> el reindex se vuelve a lanzar con el estado más nuevo (reinicio).
+     *
+     * @return void
+     */
+    public function imageReindexTick()
+    {
+        $helper = Mage::helper('mibizum_sync');
+        if (!$helper->isEnabledAnywhere()) {
+            return;
+        }
+        $pending = (int) Mage::app()->loadCache(Mibizum_Sync_Helper_Data::IMGFLUSH_PENDING);
+        if (!$pending) {
+            return;
+        }
+        if ((time() - $pending) < Mibizum_Sync_Helper_Data::IMGFLUSH_DEBOUNCE_SECS) {
+            return; // aún asentándose; puede llegar otro flush
+        }
+        Mage::app()->removeCache(Mibizum_Sync_Helper_Data::IMGFLUSH_PENDING);
+        try {
+            $enqueued = $this->enqueueFullReindex();
+            $helper->log("imageReindexTick: debounce cumplido -> encolados $enqueued productos para reindex tras flush de caché de imágenes");
+        } catch (Exception $e) {
+            $helper->log('imageReindexTick failed: ' . $e->getMessage(), Zend_Log::WARN);
+        }
+    }
+
+    /**
      * (An earlier version had applyEngineSettings() here, sending
      * searchable/filterable/sortable + rankingRules straight to the search
      * engine. In this module it does not work that way - the module has no
@@ -459,6 +508,13 @@ class Mibizum_Sync_Model_Scheduler
      */
     public function pollRemoteCommands($trigger = 'cron')
     {
+        // Magento cron pasa el objeto Schedule como primer arg; normalizamos a
+        // string por consistencia (aquí no se usa para reportar, pero evita
+        // sorpresas si se pasa a fullReindex en el futuro).
+        if (!is_string($trigger)) {
+            $trigger = 'cron';
+        }
+
         /** @var Mibizum_Sync_Helper_Data $helper */
         $helper = Mage::helper('mibizum_sync');
         if (!$helper->isEnabledAnywhere()) {

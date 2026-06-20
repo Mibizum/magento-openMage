@@ -112,7 +112,24 @@
             <!-- 0.7.2: self-heal idempotente de las 3 tablas de badges (#3) +
                  blindaje del insert de catalogsearch_result en el fallback nativo
                  contra la carrera de la FK fantasma (#2). -->
-            <version>0.7.3</version>
+            <!-- 0.7.3: poll del canal de comandos remotos (resync_catalog) — el
+                 panel pide reindexar sin entrar al modulo. -->
+            <!-- 0.7.4: el reindex abre la fila "running" en el panel con el total
+                 (reportSyncRunStart con meta.enqueued) y la cierra con sync_run_id
+                 -> barra de progreso "Reindexando… (N)" en vivo (antes nada hasta
+                 el final). Code-only; sin cambio de schema. -->
+            <!-- 0.7.5: normaliza $trigger a string en fullReindex/pollRemoteCommands.
+                 Magento cron pasa el objeto Schedule como primer arg -> el sync-run
+                 se reportaba con trigger:{objeto} y el backend daba 400. Fix del
+                 reindex diario (3 AM). Code-only; sin cambio de schema.
+                 0.7.6 (2026-06-15): ficha+listado de Smart Items (ingredientes)
+                 plegados en Mibizum_Sync — render thin desde /api/v1/smart-items,
+                 sin cambio de schema (PR #147). Aditivo, restaura el 404 vivo.
+                 0.7.7 (2026-06-16): ficha rediseñada al estilo MCC original —
+                 cabecera con foto (campo imageUrl nuevo) + título + estado,
+                 layout 75/25 y el histórico como ROADMAP con dot de color por
+                 estado. Solo template/CSS; sin cambio de schema del módulo. -->
+            <version>0.7.9</version>
         </Mibizum_Sync>
     </modules>
 
@@ -249,6 +266,37 @@
                     </mibizum_sync_push_settings_to_saas>
                 </observers>
             </admin_system_config_changed_section_mibizum_sync>
+
+            <!--
+              The merchant flushed the Catalog Images Cache (System > Cache Management).
+              That deletes media/catalog/product/cache/*, i.e. the resized derivative
+              ProductMapper indexes as image_url (resize(364)) -> indexed thumbnails would
+              404 until re-rendered, and a freshly changed image is not shown. Enqueue a
+              full reindex so the worker re-runs resize() (regenerating the derivatives on
+              disk) and re-pushes the URLs. Non-blocking: the cron drains the queue.
+            -->
+            <clean_catalog_images_cache_after>
+                <observers>
+                    <mibizum_sync_reindex_after_image_flush>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>onCatalogImagesCacheClean</method>
+                    </mibizum_sync_reindex_after_image_flush>
+                </observers>
+            </clean_catalog_images_cache_after>
+
+            <!-- Register the clean-URL router for the Smart Item (ingredient)
+                 ficha /{url_prefix}/{slug}. Thin port (Option B): the ficha is
+                 part of Mibizum_Sync, no separate Mibizum_Ingredient module. -->
+            <controller_front_init_routers>
+                <observers>
+                    <mibizum_sync_smartitems_router>
+                        <type>singleton</type>
+                        <class>mibizum_sync/observer</class>
+                        <method>initControllerRouters</method>
+                    </mibizum_sync_smartitems_router>
+                </observers>
+            </controller_front_init_routers>
         </events>
     </global>
 
@@ -257,6 +305,20 @@
     <!-- merchant does not need to edit the Magento theme to enable it.    -->
     <!-- ================================================================ -->
     <frontend>
+        <!-- Route node for the Smart Item (ingredient) ficha + listing.
+             frontName must match the configured url_prefix (default
+             "ingredientes"): the clean-URL router does setModuleName(prefix).
+             The node KEY drives the layout handle (mibizum_sync_smartitems_*). -->
+        <routers>
+            <mibizum_sync_smartitems>
+                <use>standard</use>
+                <args>
+                    <module>Mibizum_Sync</module>
+                    <frontName>ingredientes</frontName>
+                </args>
+            </mibizum_sync_smartitems>
+        </routers>
+
         <translate>
             <modules>
                 <Mibizum_Sync>
@@ -300,6 +362,19 @@
                     <model>mibizum_sync/scheduler::drainQueue</model>
                 </run>
             </mibizum_sync_drain>
+
+            <!-- 0.7.9: reindex DEBOUNCED tras vaciar la caché de imágenes. El observer
+                 (clean_catalog_images_cache_after) marca un flush pendiente; este tick
+                 (cada 2 min) lanza el reindex SOLO cuando la actividad se ha calmado
+                 (no en cada flush ni durante la regeneración). Memory-safe (enqueue+drain). -->
+            <mibizum_sync_image_reindex>
+                <schedule>
+                    <cron_expr>*/2 * * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>mibizum_sync/scheduler::imageReindexTick</model>
+                </run>
+            </mibizum_sync_image_reindex>
 
             <!-- Poll de comandos remotos (resync, ...) cada 10 min. Permite
                  "Resincronizar catalogo" desde el panel de Mibizum SIN entrar al
@@ -409,6 +484,13 @@
                 <feature_flag_param></feature_flag_param>
             </general>
             <frontend>
+                <!-- Smart Item (ingredient) public ficha + listing. Enabled by
+                     default; the router is a no-op when disabled. Title + prefix
+                     configurable per merchant/vertical (Ingredientes /
+                     Próximamente / I+D / Raw materials / …). -->
+                <smartitems_enabled>1</smartitems_enabled>
+                <smartitems_url_prefix>ingredientes</smartitems_url_prefix>
+                <smartitems_list_title>Ingredientes</smartitems_list_title>
                 <show_category_facets>0</show_category_facets>
                 <title_strip_strings></title_strip_strings>
                 <show_price>1</show_price>

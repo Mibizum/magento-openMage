@@ -35,6 +35,26 @@
 class Mibizum_Sync_Model_Observer
 {
     /**
+     * controller_front_init_routers: register the clean-URL router for the
+     * Smart Item (ingredient) ficha/listing `/{url_prefix}/...`. Defensive:
+     * never breaks frontend init if anything is off (the router itself is also a
+     * no-op when the ficha feature is disabled).
+     *
+     * @param Varien_Event_Observer $observer
+     */
+    public function initControllerRouters(Varien_Event_Observer $observer)
+    {
+        try {
+            $front = $observer->getEvent()->getFront();
+            if ($front) {
+                $front->addRouter('mibizum_sync_smartitems', new Mibizum_Sync_Controller_SmartItemRouter());
+            }
+        } catch (Exception $e) {
+            // Never break the storefront because of the ingredient router.
+        }
+    }
+
+    /**
      * Product saved: enqueue its reindex.
      *
      * @param Varien_Event_Observer $observer
@@ -199,6 +219,72 @@ class Mibizum_Sync_Model_Observer
             */
         } catch (Exception $e) {
             $helper->log('onAdminConfigSaved failed: ' . $e->getMessage(), Zend_Log::WARN);
+        }
+    }
+
+    /**
+     * The merchant ran "Flush Catalog Images Cache" (System > Cache Management).
+     * That wipes media/catalog/product/cache/* -- exactly the resized derivatives
+     * ProductMapper indexes as `image_url` (resize(364)) -- so the indexed thumbnails
+     * 404 until regenerated. We must re-sync, but NOT on every flush: we DEBOUNCE so
+     * the reindex fires once the flush/regeneration activity has settled (the cron
+     * tick Scheduler::imageReindexTick does it), never on each click or mid-regen. We
+     * also count flushes in a rolling window and raise a superadmin alarm if they
+     * repeat (a broken store/module, or someone probing to break the system). State
+     * lives in Magento cache: survives an image-cache flush; only a full cache flush
+     * clears it (acceptable -- worst case one pending reindex is forgotten).
+     */
+    public function onCatalogImagesCacheClean(Varien_Event_Observer $observer)
+    {
+        $helper = Mage::helper('mibizum_sync');
+        if (!$helper->isEnabledAnywhere()) {
+            return;
+        }
+        try {
+            $now = time();
+
+            // DEBOUNCE: marca "hay un reindex pendiente desde ahora". Cada flush
+            // posterior resetea este ts -> el cron espera de nuevo (no reindexamos
+            // antes ni durante; solo cuando la actividad se calme).
+            Mage::app()->saveCache(
+                (string) $now,
+                Mibizum_Sync_Helper_Data::IMGFLUSH_PENDING,
+                array(),
+                Mibizum_Sync_Helper_Data::IMGFLUSH_WINDOW_SECS + Mibizum_Sync_Helper_Data::IMGFLUSH_DEBOUNCE_SECS
+            );
+
+            // ABUSO: cuenta flushes en una ventana rodante.
+            $winStart = (int) Mage::app()->loadCache(Mibizum_Sync_Helper_Data::IMGFLUSH_WINSTART);
+            $count    = (int) Mage::app()->loadCache(Mibizum_Sync_Helper_Data::IMGFLUSH_COUNT);
+            if (!$winStart || ($now - $winStart) > Mibizum_Sync_Helper_Data::IMGFLUSH_WINDOW_SECS) {
+                $winStart = $now;
+                $count = 0;
+            }
+            $count++;
+            $ttl = Mibizum_Sync_Helper_Data::IMGFLUSH_WINDOW_SECS * 2;
+            Mage::app()->saveCache((string) $winStart, Mibizum_Sync_Helper_Data::IMGFLUSH_WINSTART, array(), $ttl);
+            Mage::app()->saveCache((string) $count, Mibizum_Sync_Helper_Data::IMGFLUSH_COUNT, array(), $ttl);
+            $helper->log("onCatalogImagesCacheClean: flush registrado (debounced); count=$count en ventana");
+
+            // ALARMA si se repite (con cooldown para no spamear al superadmin).
+            if ($count >= Mibizum_Sync_Helper_Data::IMGFLUSH_ABUSE_COUNT) {
+                $cooldownUntil = (int) Mage::app()->loadCache(Mibizum_Sync_Helper_Data::IMGFLUSH_ALARMCD);
+                if ($now >= $cooldownUntil) {
+                    Mage::app()->saveCache(
+                        (string) ($now + Mibizum_Sync_Helper_Data::IMGFLUSH_ALARM_CD_SECS),
+                        Mibizum_Sync_Helper_Data::IMGFLUSH_ALARMCD,
+                        array(),
+                        Mibizum_Sync_Helper_Data::IMGFLUSH_ALARM_CD_SECS
+                    );
+                    $helper->reportModuleAlarm('image_cache_flush_abuse', array(
+                        'count'         => $count,
+                        'windowMinutes' => (int) (Mibizum_Sync_Helper_Data::IMGFLUSH_WINDOW_SECS / 60),
+                    ));
+                    $helper->log("onCatalogImagesCacheClean: ALARMA de abuso enviada (count=$count) -> superadmin", Zend_Log::WARN);
+                }
+            }
+        } catch (Exception $e) {
+            $helper->log('onCatalogImagesCacheClean failed: ' . $e->getMessage(), Zend_Log::WARN);
         }
     }
 
